@@ -1,20 +1,34 @@
 #!/usr/bin/env node
-import * as cdk from 'aws-cdk-lib';
-import { InfrastructureCdkStack } from '../lib/infrastructure-cdk-stack';
+import * as cdk from "aws-cdk-lib";
+import { LambdaStack } from "../lib/stacks/LambdaStack";
+import { DatabaseStack } from "../lib/stacks/DatabaseStack";
+import { ApiStack } from "../lib/stacks/ApiStack";
 
 const app = new cdk.App();
-new InfrastructureCdkStack(app, 'InfrastructureCdkStack', {
-  /* If you don't specify 'env', this stack will be environment-agnostic.
-   * Account/Region-dependent features and context lookups will not work,
-   * but a single synthesized template can be deployed anywhere. */
 
-  /* Uncomment the next line to specialize this stack for the AWS Account
-   * and Region that are implied by the current CLI configuration. */
-  // env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+let stageName = app.node.tryGetContext("stageName");
+let ssmStageName = app.node.tryGetContext("ssmStageName");
 
-  /* Uncomment the next line if you know exactly what Account and Region you
-   * want to deploy the stack to. */
-  // env: { account: '123456789012', region: 'us-east-1' },
+if (!stageName) {
+  console.log("Defaulting to dev stage");
+  stageName = "dev";
+}
 
-  /* For more information, see https://docs.aws.amazon.com/cdk/latest/guide/environments.html */
-});
+if (!ssmStageName) {
+  console.log(`Defaulting SSM stage name to "stageName":${stageName}`);
+  ssmStageName = stageName;
+}
+
+try {
+  const dbStack = new DatabaseStack(app, `DatabaseStack-${stageName}`, {});
+  const lambdaStack = new LambdaStack(app, `LambdaStack-${stageName}`, {
+    table: dbStack.table,
+  });
+
+  new ApiStack(app, `ApiStack-${stageName}`, {
+    handler: lambdaStack.webhookHandler,
+  });
+} catch (error) {
+  console.error("Error creating stacks:", error);
+  process.exit(1);
+}
