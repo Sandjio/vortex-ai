@@ -1,14 +1,17 @@
 import { APIGatewayProxyHandlerV2 } from "aws-lambda";
-import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
 import * as crypto from "crypto";
 import {
   SecretsManagerClient,
   GetSecretValueCommand,
 } from "@aws-sdk/client-secrets-manager";
+import {
+  EventBridgeClient,
+  PutEventsCommand,
+} from "@aws-sdk/client-eventbridge";
 
-const ddb = new DynamoDBClient({});
+const eb = new EventBridgeClient({});
 const secretsClient = new SecretsManagerClient({});
-const tableName = process.env.TABLE_NAME!;
+const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME!;
 
 const getWebhookSecret = async (): Promise<string> => {
   const secretName = "vortex/github-app-webhook-secret";
@@ -17,11 +20,18 @@ const getWebhookSecret = async (): Promise<string> => {
       SecretId: secretName,
     });
     const response = await secretsClient.send(command);
-    const secretValue = response.SecretString;
-    if (typeof secretValue !== "string") {
-      throw new Error("SecretString is undefined");
+
+    if (!response.SecretString) throw new Error("SecretString is undefined");
+
+    let secret: string;
+    try {
+      const parsed = JSON.parse(response.SecretString);
+      secret = parsed["vortex-github-app-webhook-secret"];
+    } catch {
+      // If not JSON, use as is
+      secret = response.SecretString;
     }
-    return secretValue;
+    return secret;
   } catch (error) {
     console.error("Error retrieving secret:", error);
     throw new Error("Failed to retrieve webhook secret");
@@ -49,50 +59,91 @@ const verifySignature = async (
 };
 
 /**
+ * Build event for EventBridge
+ */
+const buildEvent = (
+  detailType: string,
+  detail: Record<string, any>
+): PutEventsCommand => {
+  return new PutEventsCommand({
+    Entries: [
+      {
+        Source: "vortex.github",
+        DetailType: detailType,
+        EventBusName: EVENT_BUS_NAME,
+        Detail: JSON.stringify(detail),
+      },
+    ],
+  });
+};
+/**
  * Lambda entrypoint
  */
 export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   const body = event.body || "";
   const signature = event.headers["x-hub-signature-256"];
+  const eventType = event.headers["x-github-event"];
 
+  if (!body || !signature || !eventType) {
+    console.warn("Missing required headers or body");
+    return { statusCode: 400, body: "Bad Request" };
+  }
   if (!(await verifySignature(body, signature))) {
     console.warn("Invalid webhook signature");
     return { statusCode: 401, body: "Unauthorized" };
   }
 
   const payload = JSON.parse(body);
-  const eventType = event.headers["x-github-event"];
 
-  if (eventType !== "pull_request") {
-    return { statusCode: 200, body: "Ignored non-PR event" };
+  // Handle Pull Request events
+  if (eventType === "pull_request") {
+    if (["opened", "synchronize"].includes(payload.action)) {
+      const pr = payload.pull_request;
+      const repo = payload.repository;
+
+      const command = buildEvent(
+        payload.action === "opened" ? "pr.created" : "pr.updated",
+        {
+          prId: pr.id,
+          title: pr.title,
+          url: pr.html_url,
+          created_at: pr.created_at,
+          updated_at: pr.updated_at,
+          repo: repo.full_name,
+          action: payload.action,
+        }
+      );
+
+      await eb.send(command);
+      return { statusCode: 200, body: "PR event sent to EventBridge" };
+    } else {
+      return { statusCode: 200, body: "Ignored PR action" };
+    }
   }
 
-  if (payload.action !== "opened" && payload.action !== "synchronize") {
-    return { statusCode: 200, body: "Ignored PR action" };
+  // Handle Push events (new commits)
+  if (eventType === "push") {
+    const repo = payload.repository;
+    const commits = payload.commits || [];
+
+    const command = buildEvent("commit.pushed", {
+      repo: repo.full_name,
+      ref: payload.ref,
+      head: payload.after,
+      pusher: payload.pusher.name,
+      commits: commits.map((c: any) => ({
+        id: c.id,
+        message: c.message,
+        timestamp: c.timestamp,
+        url: c.url,
+        author: c.author?.name,
+      })),
+    });
+
+    await eb.send(command);
+    return { statusCode: 200, body: "Commit event sent to EventBridge" };
   }
 
-  const pr = payload.pull_request;
-  const repo = payload.repository;
-
-  try {
-    await ddb.send(
-      new PutItemCommand({
-        TableName: tableName,
-        Item: {
-          id: { S: pr.id.toString() },
-          title: { S: pr.title },
-          url: { S: pr.html_url },
-          created_at: { S: pr.created_at },
-          updated_at: { S: pr.updated_at },
-          repo: { S: repo.full_name },
-          action: { S: payload.action },
-        },
-      })
-    );
-
-    return { statusCode: 200, body: "Pull request data saved." };
-  } catch (err) {
-    console.error("DynamoDB error:", err);
-    return { statusCode: 500, body: "Internal Server Error" };
-  }
+  // Ignore all other event types
+  return { statusCode: 200, body: `Ignored event type: ${eventType}` };
 };
