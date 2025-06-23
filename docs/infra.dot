@@ -1,0 +1,14 @@
+digraph INFRA {
+  node [ color = "black", fillcolor = "#E6E6E6", height =1, style = "filled,bold,rounded", fontname = "Arial" ];
+  "vortexHttpApi" [ label = "vortexHttpApi
+(AWS::ApiGatewayV2::Api)", shape =rectangle, fillcolor = "#E78F81" ];
+  "WebhookHandler" [ label = "WebhookHandler
+(AWS::Lambda::Function)", shape =rectangle, fillcolor = "#B7E0FF" ];
+  "DynamoDBTable" [ label = "DynamoDBTable
+(AWS::DynamoDB::Table)", shape =cylinder, fillcolor = "#FFCFB3" ];
+  "EventBridge" [ label = "EventBridge
+(AWS::Events::EventBus)", shape =rectangle, fillcolor = "#CCE0AC" ];
+  "GitHubOidcRole" [ label = "GitHubOidcRole
+(AWS::IAM::Role)", shape =rectangle ];
+  "WebhookHandler" -> "DynamoDBTable";
+}
