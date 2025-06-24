@@ -142,12 +142,14 @@ export const handler = async (event: PrEvent | CommitPushedEvent) => {
 
       const res = await fetch(apiUrl, { headers });
       const data = await res.json();
+      const files = Array.isArray(data) ? data : [];
+      console.log("Fetched PR files:", data);
 
       await emitDiffEvent({
         type: "pull_request",
         prId,
         repo,
-        data,
+        files,
       });
     } else if (detailType === "commit.pushed") {
       const { repo, commits } = event.detail;
@@ -156,6 +158,7 @@ export const handler = async (event: PrEvent | CommitPushedEvent) => {
         const apiUrl = `https://api.github.com/repos/${repo}/commits/${commit.id}`;
         const res = await fetch(apiUrl, { headers });
         const data: any = await res.json();
+        console.log("Fetched commit data:", data);
 
         const files = Array.isArray(data.files) ? data.files : [];
 

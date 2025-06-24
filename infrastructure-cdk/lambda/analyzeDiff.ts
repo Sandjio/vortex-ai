@@ -37,6 +37,17 @@ Give detailed feedback on potential improvements, bugs, security issues, or code
 export const handler = async (event: EventBridgeEvent<"diff.ready", any>) => {
   const { type, repo } = event.detail;
   const files = event.detail.files || [];
+  console.log(
+    JSON.stringify({
+      level: "info",
+      message: "Received diff event",
+      eventId: event.id,
+      repo,
+      type,
+      fileCount: files.length,
+    })
+  );
+  console.log("Files to analyze:", files);
 
   if (!files.length) {
     console.log("No files to analyze.");
