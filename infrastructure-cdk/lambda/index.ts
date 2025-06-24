@@ -52,7 +52,10 @@ const verifySignature = async (
   const digest = `sha256=${hmac.digest("hex")}`;
 
   try {
-    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(digest));
+    return crypto.timingSafeEqual(
+      Buffer.from(signature.trim(), "utf-8"),
+      Buffer.from(digest, "utf-8")
+    );
   } catch {
     return false;
   }
@@ -81,7 +84,10 @@ const buildEvent = (
  */
 export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   const body = event.body || "";
-  const signature = event.headers["x-hub-signature-256"];
+  const signature =
+    event.headers["x-hub-signature-256"] ||
+    event.headers["X-Hub-Signature-256"];
+
   const eventType = event.headers["x-github-event"];
 
   if (!body || !signature || !eventType) {
@@ -100,6 +106,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     if (["opened", "synchronize"].includes(payload.action)) {
       const pr = payload.pull_request;
       const repo = payload.repository;
+      const installation = payload.installation;
 
       const command = buildEvent(
         payload.action === "opened" ? "pr.created" : "pr.updated",
@@ -111,6 +118,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
           updated_at: pr.updated_at,
           repo: repo.full_name,
           action: payload.action,
+          installation: installation.id,
         }
       );
 
@@ -125,12 +133,14 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   if (eventType === "push") {
     const repo = payload.repository;
     const commits = payload.commits || [];
+    const installation = payload.installation;
 
     const command = buildEvent("commit.pushed", {
       repo: repo.full_name,
       ref: payload.ref,
       head: payload.after,
       pusher: payload.pusher.name,
+      installation: installation.id,
       commits: commits.map((c: any) => ({
         id: c.id,
         message: c.message,
