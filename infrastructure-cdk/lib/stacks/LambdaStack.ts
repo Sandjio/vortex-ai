@@ -113,6 +113,15 @@ export class LambdaStack extends Stack {
     );
     // Grant permissions to the fetchDiffedChangesHandler  to send events to the EventBridge bus
     props.eventBus.grantPutEventsTo(this.fetchDiffedChangesHandler);
+    // Grant permissions to get the secret value from Secrets Manager
+    this.fetchDiffedChangesHandler.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["secretsmanager:GetSecretValue"],
+        resources: [
+          `arn:${this.partition}:secretsmanager:${this.region}:${this.account}:secret:vortex/github-app-credentials-*`,
+        ],
+      })
+    );
 
     this.lambdaAnalyzeDiff = new lambdaNodejs.NodejsFunction(
       this,
