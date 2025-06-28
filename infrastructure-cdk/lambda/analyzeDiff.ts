@@ -3,34 +3,53 @@ import {
   InvokeModelCommand,
 } from "@aws-sdk/client-bedrock-runtime";
 import { EventBridgeEvent } from "aws-lambda";
+import {
+  EventBridgeClient,
+  PutEventsCommand,
+} from "@aws-sdk/client-eventbridge";
+
+type BedrockResponseEvent = EventBridgeEvent<
+  "bedrock.response",
+  {
+    analysisResult: string;
+  }
+>;
 
 const bedrock = new BedrockRuntimeClient({});
-const MODEL_ID = process.env.MODEL_ID || "anthropic.claude-3-sonnet-20240229"; // or use Amazon.Titan
+const MODEL_ID =
+  process.env.MODEL_ID || "anthropic.claude-3-sonnet-20240229-v1:0";
+const eb = new EventBridgeClient({});
+const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME!;
 
 const buildPrompt = (files: any[]) => {
-  const redactedFiles = files.map((f) => ({
-    filename: f.filename,
-    additions: f.additions,
-    deletions: f.deletions,
-    changes: f.changes,
-  }));
+  const detailedDiff = files
+    .map((f) => {
+      return `Filename: ${f.filename}\nChanges:\n${
+        f.patch || "(no patch provided)"
+      }\n`;
+    })
+    .join("\n---\n");
 
   console.log(
     JSON.stringify({
       level: "info",
       message: "Preparing to analyze diff",
       fileCount: files.length,
-      redactedFiles,
+      filesWithPatch: files.map((f) => ({
+        filename: f.filename,
+        hasPatch: !!f.patch,
+      })),
     })
   );
-  const fileDescriptions = files.map((f) => `- ${f.filename}`).join("\n");
+
   const prompt = `
-You are a senior software engineer. A code update has been submitted. Please review the following changes:
+You are a senior software engineer. A code update has been submitted. Please review the following changes below. Your review should include detailed feedback on potential improvements, bugs, security issues, or code smells.
 
-${fileDescriptions}
+${detailedDiff}
 
-Give detailed feedback on potential improvements, bugs, security issues, or code smells.
+Please provide your insights.
 `;
+
   return prompt;
 };
 
@@ -62,8 +81,9 @@ export const handler = async (event: EventBridgeEvent<"diff.ready", any>) => {
       contentType: "application/json",
       accept: "application/json",
       body: JSON.stringify({
-        prompt: prompt,
-        max_tokens_to_sample: 1024,
+        anthropic_version: "bedrock-2023-05-31",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
         temperature: 0.3,
         top_k: 250,
         top_p: 0.95,
@@ -86,7 +106,25 @@ export const handler = async (event: EventBridgeEvent<"diff.ready", any>) => {
     const responseBody = JSON.parse(new TextDecoder().decode(response.body));
     console.log("🧠 Bedrock response:", responseBody);
 
-    // (Optional) Store response in S3, email, or return
+    // send the response to EventBridge
+    const putEventsCommand = new PutEventsCommand({
+      Entries: [
+        {
+          Source: "vortex.github",
+          DetailType: "bedrock.response",
+          EventBusName: EVENT_BUS_NAME,
+          Detail: JSON.stringify({
+            analysisResult: responseBody,
+            eventId: event.id,
+            repo,
+            type,
+            fileCount: files.length,
+          }),
+        },
+      ],
+    });
+    await eb.send(putEventsCommand);
+
     return { statusCode: 200, body: JSON.stringify(responseBody) };
   } catch (err) {
     console.error(
