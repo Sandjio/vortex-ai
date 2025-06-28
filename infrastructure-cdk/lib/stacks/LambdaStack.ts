@@ -9,11 +9,11 @@ import {
   aws_events_targets as targets,
   aws_iam as iam,
   aws_logs as logs,
+  aws_s3 as s3,
+  RemovalPolicy,
   Duration,
 } from "aws-cdk-lib";
 import * as path from "path";
-
-// import { GithubWebhookHandler } from "../constructs/GithubWebhookHandler"; // The deployment is failing with this import, so we are not using it for now.
 
 interface LambdaStackProps extends StackProps {
   table: dynamodb.ITable;
@@ -25,12 +25,25 @@ export class LambdaStack extends Stack {
   public readonly recordGithubEventDetailsHandler: lambdaNodejs.NodejsFunction;
   public readonly fetchDiffedChangesHandler: lambdaNodejs.NodejsFunction;
   public readonly lambdaAnalyzeDiff: lambdaNodejs.NodejsFunction;
+  // public readonly pdfGenerator: lambdaNodejs.NodejsFunction;
+  public readonly pdfGenerator: lambda.Function;
+
+  public readonly emailSender: lambdaNodejs.NodejsFunction;
 
   constructor(scope: Construct, id: string, props: LambdaStackProps) {
     super(scope, id, props);
 
     // Define stageName, e.g., from stack name, context, or environment
     const stageName = this.node.tryGetContext("stage") || "dev";
+
+    const pdfBucket = new s3.Bucket(this, `PDFBucket-${stageName}`, {
+      bucketName: `vortex-pdf-bucket-${stageName}`,
+      removalPolicy: RemovalPolicy.RETAIN,
+      versioned: true, // Enable versioning for the bucket
+      encryption: s3.BucketEncryption.S3_MANAGED, // Use KMS for production
+      publicReadAccess: false, // Ensure the bucket is not publicly accessible
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL, // Block all public access
+    });
 
     this.webhookHandler = new lambdaNodejs.NodejsFunction(
       this,
@@ -111,6 +124,7 @@ export class LambdaStack extends Stack {
         logRetention: logs.RetentionDays.ONE_WEEK,
       }
     );
+
     // Grant permissions to the fetchDiffedChangesHandler  to send events to the EventBridge bus
     props.eventBus.grantPutEventsTo(this.fetchDiffedChangesHandler);
     // Grant permissions to get the secret value from Secrets Manager
@@ -131,19 +145,25 @@ export class LambdaStack extends Stack {
         runtime: lambda.Runtime.NODEJS_22_X,
         environment: {
           EVENT_BUS_NAME: props.eventBus.eventBusName,
-          MODEL_ID: "anthropic.claude-3-sonnet-20240229", // Store the value in SSM parameter store or Secrets Manager
+          MODEL_ID: "anthropic.claude-3-sonnet-20240229-v1:0", // Store the value in SSM parameter store or Secrets Manager
         },
         bundling: {
-          externalModules: ["aws-lambda", "@aws-sdk/client-secrets-manager"],
+          externalModules: [
+            "aws-lambda",
+            "@aws-sdk/client-secrets-manager",
+            "@aws-sdk/client-bedrock-runtime",
+          ],
         },
         projectRoot: path.join(__dirname, "../.."),
-        timeout: Duration.seconds(10),
+        timeout: Duration.minutes(5),
         memorySize: 256,
         logRetention: logs.RetentionDays.ONE_WEEK,
       }
     );
+    // Grant permissions to the lambdaAnalyzeDiff to send events to the EventBridge bus
+    props.eventBus.grantPutEventsTo(this.lambdaAnalyzeDiff);
+
     // Grant permissions to the lambdaAnalyzeDiff to send prompts to Bedrock
-    // TODO: Check the correctness of the policy statement below
     this.lambdaAnalyzeDiff.addToRolePolicy(
       new iam.PolicyStatement({
         actions: [
@@ -151,8 +171,63 @@ export class LambdaStack extends Stack {
           "bedrock:InvokeModelWithResponseStream",
         ],
         resources: [
-          `arn:${this.partition}:bedrock:${this.region}:${this.account}:foundation-model/vortex-analyze-diff`,
+          `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-3-sonnet-*`,
         ],
+      })
+    );
+
+    this.pdfGenerator = new lambdaNodejs.NodejsFunction(this, "PDFGenerator", {
+      entry: path.join(__dirname, "..", "..", "lambda", "pdfGenerator.ts"),
+      runtime: lambda.Runtime.NODEJS_22_X,
+      environment: {
+        EVENT_BUS_NAME: props.eventBus.eventBusName,
+        S3_BUCKET_NAME: pdfBucket.bucketName,
+      },
+      bundling: {
+        externalModules: ["aws-lambda"],
+        commandHooks: {
+          beforeBundling(inputDir, outputDir): string[] {
+            return [
+              `mkdir -p ${outputDir}/fonts`,
+              `cp ${inputDir}/lambda/Roboto-Black.ttf ${outputDir}/fonts/Roboto-Black.ttf`,
+              `cp -r ${inputDir}/node_modules/pdfkit/js/data ${outputDir}/data || true`,
+            ];
+          },
+          afterBundling(): string[] {
+            return [];
+          },
+          beforeInstall(): string[] {
+            return [];
+          },
+        },
+      },
+      projectRoot: path.join(__dirname, "../.."),
+      timeout: Duration.seconds(60),
+      memorySize: 512,
+      logRetention: logs.RetentionDays.ONE_WEEK,
+    });
+
+    pdfBucket.grantPut(this.pdfGenerator);
+    // Grant permissions to the pdfGenerator to send events to the EventBridge bus
+    props.eventBus.grantPutEventsTo(this.pdfGenerator);
+
+    this.emailSender = new lambdaNodejs.NodejsFunction(this, "EmailSender", {
+      entry: path.join(__dirname, "..", "..", "lambda", "emailSender.ts"),
+      runtime: lambda.Runtime.NODEJS_22_X,
+      environment: {
+        S3_BUCKET_NAME: pdfBucket.bucketName,
+      },
+      timeout: Duration.seconds(30),
+      memorySize: 256,
+      logRetention: logs.RetentionDays.ONE_WEEK,
+    });
+    // Grant permissions to the emailSender to read from the S3 bucket
+    pdfBucket.grantRead(this.emailSender);
+    // Grant permissions to the emailSender to send emails using SES
+    this.emailSender.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["ses:SendEmail", "ses:SendRawEmail"],
+        resources: ["*"], // or restrict to a specific verified identity
       })
     );
 
@@ -193,34 +268,29 @@ export class LambdaStack extends Stack {
       },
       targets: [new targets.LambdaFunction(this.lambdaAnalyzeDiff)],
     });
+
+    new events.Rule(this, `BedrockResponseRule-${stageName}`, {
+      eventBus: props.eventBus,
+      enabled: true,
+      ruleName: `BedrockResponseRule-${stageName}`,
+      description: "Handles Bedrock response events",
+      eventPattern: {
+        source: ["vortex.github"],
+        detailType: ["bedrock.response"],
+      },
+      targets: [new targets.LambdaFunction(this.pdfGenerator)],
+    });
+
+    new events.Rule(this, `SendEmailRule-${stageName}`, {
+      eventBus: props.eventBus,
+      enabled: true,
+      ruleName: `SendEmailAfterPDFGenerated-${stageName}`,
+      description: "Generates PDF from diff analysis",
+      eventPattern: {
+        source: ["vortex.github"],
+        detailType: ["pdf.ready"],
+      },
+      targets: [new targets.LambdaFunction(this.emailSender)],
+    });
   }
 }
-
-// Uncomment the following code if you want to use the GithubWebhookHandler construct instead of inline definition
-
-// import { Construct } from "constructs";
-// import {
-//   Stack,
-//   StackProps,
-//   aws_dynamodb as dynamodb,
-//   aws_lambda as lambda,
-// } from "aws-cdk-lib";
-// import { GithubWebhookHandler } from "../constructs/GithubWebhookHandler";
-
-// interface LambdaStackProps extends StackProps {
-//   table: dynamodb.ITable;
-// }
-
-// export class LambdaStack extends Stack {
-//   public readonly webhookHandler: lambda.IFunction;
-
-//   constructor(scope: Construct, id: string, props: LambdaStackProps) {
-//     super(scope, id, props);
-
-//     const handler = new GithubWebhookHandler(this, "GithubWebhookHandler", {
-//       table: props.table,
-//     });
-
-//     this.webhookHandler = handler.function;
-//   }
-// }
