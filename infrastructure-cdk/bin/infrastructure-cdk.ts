@@ -3,7 +3,6 @@ import * as cdk from "aws-cdk-lib";
 import { LambdaStack } from "../lib/stacks/LambdaStack";
 import { DatabaseStack } from "../lib/stacks/DatabaseStack";
 import { ApiStack } from "../lib/stacks/ApiStack";
-import { GitHubOidcRoleStack } from "../lib/stacks/GitHubOidcRoleStack";
 import { EventBridgeStack } from "../lib/stacks/EventBridgeStack";
 
 const app = new cdk.App();
@@ -43,7 +42,6 @@ try {
     handler: lambdaStack.webhookHandler,
     registerEmailHandler: lambdaStack.registerEmailHandler,
   });
-  new GitHubOidcRoleStack(app, `GitHubOidcRoleStack-${stageName}`, {});
 } catch (error) {
   console.error("Error creating stacks:", error);
   process.exit(1);
