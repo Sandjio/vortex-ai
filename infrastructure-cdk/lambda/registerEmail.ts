@@ -43,7 +43,15 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       })
     );
     console.log("Successfully inserted item into DynamoDB.");
-    return { statusCode: 200, body: "Email registered" };
+    return {
+      statusCode: 200,
+      headers: {
+        "Access-Control-Allow-Origin": event.headers.origin || "*",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Methods": "POST",
+      },
+      body: "Email registered",
+    };
   } catch (err) {
     console.error("Error occurred while registering email:", err);
     return { statusCode: 500, body: "Error registering email" };

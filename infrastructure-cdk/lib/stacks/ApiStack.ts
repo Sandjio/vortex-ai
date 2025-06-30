@@ -23,7 +23,7 @@ export class ApiStack extends Stack {
         allowMethods: [apiGatewayV2.CorsHttpMethod.POST],
         allowOrigins: [
           "http://localhost:3000",
-          "https://main.drbfblsps3a5e.amplifyapp.com/",
+          "https://main.drbfblsps3a5e.amplifyapp.com",
         ],
       },
     });
