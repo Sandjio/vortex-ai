@@ -18,7 +18,7 @@ type PrEvent = EventBridgeEvent<
     repo: string;
     prId: number;
     installation: number;
-    gitHubUsername: string;
+    githubUsername: string;
   }
 >;
 
@@ -28,7 +28,7 @@ type CommitPushedEvent = EventBridgeEvent<
     repo: string;
     commits: Array<{ id: string }>;
     installation: number;
-    gitHubUsername: string;
+    githubUsername: string;
   }
 >;
 
@@ -135,7 +135,7 @@ export const handler = async (event: PrEvent | CommitPushedEvent) => {
     };
 
     if (detailType === "pr.created" || detailType === "pr.updated") {
-      const { url, repo, prId, gitHubUsername } = event.detail;
+      const { url, repo, prId, githubUsername } = event.detail;
 
       const apiUrl =
         url
@@ -152,10 +152,10 @@ export const handler = async (event: PrEvent | CommitPushedEvent) => {
         prId,
         repo,
         files,
-        gitHubUsername,
+        githubUsername,
       });
     } else if (detailType === "commit.pushed") {
-      const { repo, commits, gitHubUsername } = event.detail;
+      const { repo, commits, githubUsername } = event.detail;
 
       for (const commit of commits) {
         const apiUrl = `https://api.github.com/repos/${repo}/commits/${commit.id}`;
@@ -170,7 +170,7 @@ export const handler = async (event: PrEvent | CommitPushedEvent) => {
           commitId: commit.id,
           repo,
           files,
-          gitHubUsername: gitHubUsername,
+          githubUsername: githubUsername,
         });
       }
     }
