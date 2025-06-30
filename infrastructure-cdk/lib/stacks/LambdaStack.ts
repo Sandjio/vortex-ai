@@ -182,6 +182,7 @@ export class LambdaStack extends Stack {
       environment: {
         EVENT_BUS_NAME: props.eventBus.eventBusName,
         S3_BUCKET_NAME: pdfBucket.bucketName,
+        TABLE_NAME: props.table.tableName,
       },
       bundling: {
         externalModules: ["aws-lambda"],
@@ -207,9 +208,12 @@ export class LambdaStack extends Stack {
       logRetention: logs.RetentionDays.ONE_WEEK,
     });
 
+    // Grant permissions to the pdfGenerator to write to the S3 bucket
     pdfBucket.grantPut(this.pdfGenerator);
     // Grant permissions to the pdfGenerator to send events to the EventBridge bus
     props.eventBus.grantPutEventsTo(this.pdfGenerator);
+    // Grant permissions to the pdfGenerator to read from the DynamoDB table
+    props.table.grantReadData(this.pdfGenerator);
 
     this.emailSender = new lambdaNodejs.NodejsFunction(this, "EmailSender", {
       entry: path.join(__dirname, "..", "..", "lambda", "emailSender.ts"),

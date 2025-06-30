@@ -23,7 +23,7 @@ const ddb = new DynamoDBClient({});
 
 const BUCKET_NAME = process.env.S3_BUCKET_NAME!;
 const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME!;
-const DDB_TABLE_NAME = process.env.TABLE_NAME!;
+const TABLE_NAME = process.env.TABLE_NAME!;
 const FONT_PATH = path.join(__dirname, "fonts", "Roboto-Black.ttf");
 
 function createPdfBuffer({ title, content }: PDFContent): Promise<Buffer> {
@@ -53,7 +53,7 @@ async function fetchEmailFromDynamoDB(
   try {
     const result = await ddb.send(
       new GetItemCommand({
-        TableName: DDB_TABLE_NAME,
+        TableName: TABLE_NAME,
         Key: {
           PK: { S: `GITHUBUSER#${githubUsername}` },
           SK: { S: "PROFILE" },
@@ -110,7 +110,7 @@ export const handler = async (
       Entries: [
         {
           Source: "vortex.github",
-          DetailType: "pdf.generated",
+          DetailType: "pdf.ready",
           EventBusName: EVENT_BUS_NAME,
           Detail: JSON.stringify({
             s3Key: objectKey,
