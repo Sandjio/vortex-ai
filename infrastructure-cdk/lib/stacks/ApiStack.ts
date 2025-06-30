@@ -10,6 +10,7 @@ import { Construct } from "constructs";
 
 interface ApiStackProps extends StackProps {
   handler: lambda.IFunction;
+  registerEmailHandler: lambda.IFunction;
 }
 
 export class ApiStack extends Stack {
@@ -27,8 +28,21 @@ export class ApiStack extends Stack {
       ),
     });
 
+    api.addRoutes({
+      path: "/register-email",
+      methods: [apiGatewayV2.HttpMethod.POST],
+      integration: new integrations.HttpLambdaIntegration(
+        "RegisterEmailIntegration",
+        props.registerEmailHandler
+      ),
+    });
+
     new CfnOutput(this, "ApiUrl", {
       value: api.apiEndpoint + "/webhook",
+    });
+
+    new CfnOutput(this, "RegisterEmailApiUrl", {
+      value: api.apiEndpoint + "/register-email",
     });
   }
 }
