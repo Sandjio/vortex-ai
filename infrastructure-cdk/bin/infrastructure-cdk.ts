@@ -41,6 +41,7 @@ try {
 
   new ApiStack(app, `ApiStack-${stageName}`, {
     handler: lambdaStack.webhookHandler,
+    registerEmailHandler: lambdaStack.registerEmailHandler,
   });
   new GitHubOidcRoleStack(app, `GitHubOidcRoleStack-${stageName}`, {});
 } catch (error) {
