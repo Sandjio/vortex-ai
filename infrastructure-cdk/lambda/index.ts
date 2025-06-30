@@ -107,6 +107,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       const pr = payload.pull_request;
       const repo = payload.repository;
       const installation = payload.installation;
+      const githubUsername = payload.sender.login;
 
       const command = buildEvent(
         payload.action === "opened" ? "pr.created" : "pr.updated",
@@ -119,6 +120,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
           repo: repo.full_name,
           action: payload.action,
           installation: installation.id,
+          githubUsername: githubUsername,
         }
       );
 
@@ -134,6 +136,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     const repo = payload.repository;
     const commits = payload.commits || [];
     const installation = payload.installation;
+    const githubUsername = payload.sender.login;
 
     const command = buildEvent("commit.pushed", {
       repo: repo.full_name,
@@ -141,6 +144,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       head: payload.after,
       pusher: payload.pusher.name,
       installation: installation.id,
+      githubUsername: githubUsername,
       commits: commits.map((c: any) => ({
         id: c.id,
         message: c.message,

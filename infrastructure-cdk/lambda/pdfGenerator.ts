@@ -10,6 +10,8 @@ import fs from "fs";
 import path from "path";
 import PDFDocument from "pdfkit";
 import { PassThrough } from "stream";
+import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
+
 interface PDFContent {
   title: string;
   content: string;
@@ -17,9 +19,11 @@ interface PDFContent {
 
 const s3 = new S3Client({});
 const eb = new EventBridgeClient({});
+const ddb = new DynamoDBClient({});
 
 const BUCKET_NAME = process.env.S3_BUCKET_NAME!;
 const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME!;
+const DDB_TABLE_NAME = process.env.TABLE_NAME!;
 const FONT_PATH = path.join(__dirname, "fonts", "Roboto-Black.ttf");
 
 function createPdfBuffer({ title, content }: PDFContent): Promise<Buffer> {
@@ -43,11 +47,44 @@ function createPdfBuffer({ title, content }: PDFContent): Promise<Buffer> {
   });
 }
 
+async function fetchEmailFromDynamoDB(
+  githubUsername: string
+): Promise<string | null> {
+  try {
+    const result = await ddb.send(
+      new GetItemCommand({
+        TableName: DDB_TABLE_NAME,
+        Key: {
+          PK: { S: `GITHUBUSER#${githubUsername}` },
+          SK: { S: "PROFILE" },
+        },
+        ProjectionExpression: "Email",
+      })
+    );
+    return result.Item?.Email?.S || null;
+  } catch (err) {
+    console.error("Error fetching email from DynamoDB:", err);
+    return null;
+  }
+}
+
 export const handler = async (
   event: EventBridgeEvent<"bedrock.response", any>
 ) => {
-  const { analysisResult, repo, type, fileCount, eventId } = event.detail;
-  const email = "test@gmail.com"; // TODO: Fetch the email from github API
+  const { analysisResult, repo, type, fileCount, eventId, githubUsername } =
+    event.detail;
+  let email: string | null = null;
+
+  if (githubUsername) {
+    email = await fetchEmailFromDynamoDB(githubUsername);
+  }
+
+  if (!email) {
+    console.warn("No email found for githubUsername:", githubUsername);
+    // Optionally, you can return or continue with a fallback
+    return { statusCode: 404, body: "No email found for user" };
+  }
+
   console.log("Generating PDF from Bedrock analysis...");
 
   const pdfBuffer = await createPdfBuffer({
@@ -80,7 +117,7 @@ export const handler = async (
             repo,
             type,
             fileCount,
-            email, // forward if available
+            email,
           }),
         },
       ],

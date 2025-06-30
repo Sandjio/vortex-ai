@@ -54,7 +54,7 @@ Please provide your insights.
 };
 
 export const handler = async (event: EventBridgeEvent<"diff.ready", any>) => {
-  const { type, repo } = event.detail;
+  const { type, repo, githubUsername } = event.detail;
   const files = event.detail.files || [];
   console.log(
     JSON.stringify({
@@ -64,6 +64,7 @@ export const handler = async (event: EventBridgeEvent<"diff.ready", any>) => {
       repo,
       type,
       fileCount: files.length,
+      githubUsername,
     })
   );
   console.log("Files to analyze:", files);
@@ -100,6 +101,7 @@ export const handler = async (event: EventBridgeEvent<"diff.ready", any>) => {
         repo: event.detail.repo,
         type: event.detail.type,
         fileCount: files.length,
+        githubUsername,
       })
     );
     const response = await bedrock.send(command);
@@ -119,6 +121,7 @@ export const handler = async (event: EventBridgeEvent<"diff.ready", any>) => {
             repo,
             type,
             fileCount: files.length,
+            githubUsername,
           }),
         },
       ],
@@ -136,6 +139,7 @@ export const handler = async (event: EventBridgeEvent<"diff.ready", any>) => {
         repo: event.detail.repo,
         type: event.detail.type,
         fileCount: files.length,
+        githubUsername,
       })
     );
     return { statusCode: 500 };
