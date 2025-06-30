@@ -17,7 +17,16 @@ export class ApiStack extends Stack {
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id);
 
-    const api = new apiGatewayV2.HttpApi(this, "vortexHttpApi");
+    const api = new apiGatewayV2.HttpApi(this, "vortexHttpApi", {
+      corsPreflight: {
+        allowHeaders: ["Content-Type"],
+        allowMethods: [apiGatewayV2.CorsHttpMethod.POST],
+        allowOrigins: [
+          "http://localhost:3000",
+          "https://main.drbfblsps3a5e.amplifyapp.com/",
+        ],
+      },
+    });
 
     api.addRoutes({
       path: "/webhook",
