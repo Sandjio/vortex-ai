@@ -25,8 +25,8 @@ export class LambdaStack extends Stack {
   public readonly recordGithubEventDetailsHandler: lambdaNodejs.NodejsFunction;
   public readonly fetchDiffedChangesHandler: lambdaNodejs.NodejsFunction;
   public readonly lambdaAnalyzeDiff: lambdaNodejs.NodejsFunction;
-  // public readonly pdfGenerator: lambdaNodejs.NodejsFunction;
   public readonly pdfGenerator: lambda.Function;
+  public readonly registerEmailHandler: lambdaNodejs.NodejsFunction;
 
   public readonly emailSender: lambdaNodejs.NodejsFunction;
 
@@ -230,6 +230,24 @@ export class LambdaStack extends Stack {
         resources: ["*"], // or restrict to a specific verified identity
       })
     );
+
+    this.registerEmailHandler = new lambdaNodejs.NodejsFunction(
+      this,
+      "RegisterEmailHandler",
+      {
+        entry: path.join(__dirname, "..", "..", "lambda", "registerEmail.ts"),
+        runtime: lambda.Runtime.NODEJS_22_X,
+        environment: { TABLE_NAME: props.table.tableName },
+        bundling: {
+          externalModules: ["aws-lambda", "@aws-sdk/client-dynamodb"],
+        },
+        projectRoot: path.join(__dirname, "../.."),
+        timeout: Duration.seconds(10),
+        memorySize: 256,
+        logRetention: logs.RetentionDays.ONE_WEEK,
+      }
+    );
+    props.table.grantWriteData(this.registerEmailHandler);
 
     new events.Rule(this, `PRDataToDynamoRule-${stageName}`, {
       eventBus: props.eventBus,
