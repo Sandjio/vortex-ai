@@ -1,4 +1,3 @@
-// TODO: Cache the installation token for a short period to avoid hitting rate limits with Momento cache
 import {
   EventBridgeClient,
   PutEventsCommand,
@@ -10,6 +9,12 @@ import {
   SecretsManagerClient,
   GetSecretValueCommand,
 } from "@aws-sdk/client-secrets-manager";
+import {
+  DynamoDBClient,
+  GetItemCommand,
+  PutItemCommand,
+} from "@aws-sdk/client-dynamodb";
+import { unmarshall, marshall } from "@aws-sdk/util-dynamodb";
 
 type PrEvent = EventBridgeEvent<
   "pr.created" | "pr.updated",
@@ -17,7 +22,7 @@ type PrEvent = EventBridgeEvent<
     url: string;
     repo: string;
     prId: number;
-    installation: number;
+    installation: string;
     githubUsername: string;
   }
 >;
@@ -27,13 +32,15 @@ type CommitPushedEvent = EventBridgeEvent<
   {
     repo: string;
     commits: Array<{ id: string }>;
-    installation: number;
+    installation: string;
     githubUsername: string;
   }
 >;
 
 const eb = new EventBridgeClient({});
 const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME!;
+const dynamoDbClient = new DynamoDBClient({});
+const TABLE_NAME = process.env.TABLE_NAME!;
 
 const getGithubAppCredentials = async (): Promise<{
   GITHUB_APP_ID: string;
@@ -78,8 +85,40 @@ function generateAppJWT(
   );
 }
 
+// In-memory cache (only lives while Lambda container is warm)
+const memoryCache = new Map<string, { token: string; expiresAt: number }>();
+
 // Exchange JWT for an installation token
-async function getInstallationToken(installationId: number): Promise<string> {
+async function getInstallationToken(installationId: string): Promise<string> {
+  const now = Math.floor(Date.now()) / 1000;
+  // 1. Check in-memory cache
+  const cached = memoryCache.get(installationId);
+  if (cached && cached.expiresAt > now + 60) {
+    console.log("Using token from memory cache");
+    return cached.token;
+  }
+  // 2. Check DynamoDB
+  const PK = `INSTALLATION#${installationId}`;
+  const SK = `TOKEN#INSTALLATION`;
+  const getCmd = new GetItemCommand({
+    TableName: TABLE_NAME,
+    Key: marshall({ PK, SK }),
+  });
+
+  const dbRes = await dynamoDbClient.send(getCmd);
+  const item = dbRes.Item ? unmarshall(dbRes.Item) : null;
+
+  if (item && item.token && item.expiresAt > now + 60) {
+    console.log("Using token from DynamoDB");
+    memoryCache.set(installationId, {
+      token: item.token,
+      expiresAt: item.expiresAt,
+    });
+    return item.token;
+  }
+
+  // 3. Fetch new token from GitHub
+  console.log("Fetching fresh token from GitHub");
   const { GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY } =
     await getGithubAppCredentials();
   const jwtToken = generateAppJWT(GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY);
@@ -99,8 +138,28 @@ async function getInstallationToken(installationId: number): Promise<string> {
     throw new Error(`Failed to get installation token: ${await res.text()}`);
   }
 
-  const json = (await res.json()) as { token: string };
-  return json.token;
+  const json = (await res.json()) as { token: string; expires_at: number };
+
+  const expiresAtEpoch = Math.floor(new Date(json.expires_at).getTime() / 1000);
+
+  // Save in DynamoDB
+  await dynamoDbClient.send(
+    new PutItemCommand({
+      TableName: TABLE_NAME,
+      Item: marshall({
+        PK,
+        SK,
+        token: json.token,
+        expiresAt: expiresAtEpoch,
+        ttl: expiresAtEpoch,
+      }),
+    })
+  );
+
+  const token = json.token;
+  // Save in-memory
+  memoryCache.set(installationId, { token, expiresAt: expiresAtEpoch });
+  return token;
 }
 
 // Emit diff.ready event
