@@ -114,9 +114,18 @@ export class LambdaStack extends Stack {
           "fetchDiffedChanges.ts"
         ),
         runtime: lambda.Runtime.NODEJS_22_X,
-        environment: { EVENT_BUS_NAME: props.eventBus.eventBusName },
+        environment: {
+          EVENT_BUS_NAME: props.eventBus.eventBusName,
+          TABLE_NAME: props.table.tableName,
+        },
         bundling: {
-          externalModules: ["aws-lambda", "@aws-sdk/client-secrets-manager"],
+          externalModules: [
+            "aws-lambda",
+            "@aws-sdk/client-secrets-manager",
+            "aws-sdk/client-dynamodb",
+            "@aws-sdk/util-dynamodb",
+            "@aws-sdk/client-eventbridge",
+          ],
         },
         projectRoot: path.join(__dirname, "../.."),
         timeout: Duration.seconds(10),
@@ -136,6 +145,8 @@ export class LambdaStack extends Stack {
         ],
       })
     );
+    // Grant permissions to the fetchDiffedChangesHandler to read and write from the DynamoDB table
+    props.table.grantReadWriteData(this.fetchDiffedChangesHandler);
 
     this.lambdaAnalyzeDiff = new lambdaNodejs.NodejsFunction(
       this,
