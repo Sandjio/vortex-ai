@@ -50,7 +50,7 @@ These Lambda functions are triggered via EventBridge rules to create a decoupled
 │   │   ├── convertToPdf.ts
 │   │   └── sendPdfByMail.ts
 │   └── lib/                     # CDK constructs & stacks
-└── vortex-frontend/            # (Optional) Frontend app
+└── vortex-frontend/            
 ```
 
 ## 🚀 Installation & Deployment
@@ -65,7 +65,7 @@ These Lambda functions are triggered via EventBridge rules to create a decoupled
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/your-org/vortex-ai.git
+git clone https://github.com/Sandjio/vortex-ai.git
 cd vortex-ai/infrastructure-cdk
 npm install
 ```
