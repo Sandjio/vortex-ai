@@ -44,25 +44,60 @@ export const handler = async (
 
   // Construct raw email
   const boundary = `----=_Part_${Date.now()}`;
+  const base64Pdf = pdfBuffer.toString("base64");
+
+  const htmlBody = `
+<html>
+  <body style="font-family: sans-serif; color: #333;">
+    <h2 style="color: #2E86C1;">Your Code Review Report is Ready 📄</h2>
+    <p>Hi there,</p>
+    <p>
+      We’ve completed the analysis of your recent code changes.
+      You’ll find the detailed review attached as a PDF.
+    </p>
+    <p>Best regards,<br />The Vortex AI Review Team</p>
+  </body>
+</html>
+`;
+
+  const textBody = `
+Hi there,
+
+Your code review report is ready. Please find the attached PDF for details.
+
+Best regards,
+VortexAI Review Team
+`;
+
   const rawEmail = [
-    `From: "Code Reviewer" <noreply@emmasandjio.com>`,
+    `From: "VortexAI Code Reviewer" <noreply@emmasandjio.com>`,
     `To: ${email}`,
-    `Subject: Your PR Review Report`,
+    `Subject: Your Code Review Report is Ready`,
     `MIME-Version: 1.0`,
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
     ``,
     `--${boundary}`,
+    `Content-Type: multipart/alternative; boundary="ALT-${boundary}"`,
+    ``,
+    `--ALT-${boundary}`,
     `Content-Type: text/plain; charset="UTF-8"`,
     ``,
-    `Hi,`,
-    `\nYour PR report is attached as a PDF.`,
+    textBody,
+    ``,
+    `--ALT-${boundary}`,
+    `Content-Type: text/html; charset="UTF-8"`,
+    ``,
+    htmlBody,
+    ``,
+    `--ALT-${boundary}--`,
     ``,
     `--${boundary}`,
-    `Content-Type: application/pdf; name="report.pdf"`,
-    `Content-Disposition: attachment; filename="report.pdf"`,
+    `Content-Type: application/pdf; name="code-review-report.pdf"`,
+    `Content-Disposition: attachment; filename="code-review-report.pdf"`,
     `Content-Transfer-Encoding: base64`,
     ``,
-    pdfBuffer.toString("base64"),
+    base64Pdf,
+    ``,
     `--${boundary}--`,
   ].join("\r\n");
 
