@@ -11,6 +11,7 @@ import path from "path";
 import PDFDocument from "pdfkit";
 import { PassThrough } from "stream";
 import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
+import { marked } from "marked"; //
 
 interface PDFContent {
   title: string;
@@ -28,7 +29,7 @@ const FONT_PATH = path.join(__dirname, "fonts", "Roboto-Black.ttf");
 
 function createPdfBuffer({ title, content }: PDFContent): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument();
+    const doc = new PDFDocument({ margin: 50 });
     const stream = new PassThrough();
     const chunks: Uint8Array[] = [];
 
@@ -39,14 +40,165 @@ function createPdfBuffer({ title, content }: PDFContent): Promise<Buffer> {
     doc.pipe(stream);
 
     doc.font(FONT_PATH); // ✅ Use the custom font
-    doc.fontSize(20).text(title, { underline: true });
+    doc.fontSize(22).text(title, { align: "center", underline: true });
     doc.moveDown();
-    doc.fontSize(12).text(content, { align: "left" });
+
+    // const markdownText =
+    //   typeof content === "string" ? content : JSON.stringify(content, null, 2);
+
+    const tokens = marked.lexer(content);
+    // const renderInline = (text: string) => {
+    //   const inlineTokens = marked.lexer(text, { gfm: true });
+    //   const parser = new marked.Parser();
+
+    //   const html = parser.parseInline(inlineTokens);
+    //   // Remove <p> wrapper
+    //   return html
+    //     .replace(/<p>|<\/p>/g, "")
+    //     .replace(/&lt;/g, "<")
+    //     .replace(/&gt;/g, ">")
+    //     .replace(/&amp;/g, "&");
+    // };
+
+    // const renderText = (token: any) => {
+    //   if (token.tokens) {
+    //     for (const inline of token.tokens) {
+    //       switch (inline.type) {
+    //         case "strong":
+    //           doc
+    //             .font(FONT_PATH)
+    //             .fontSize(12)
+    //             .text(inline.text, { continued: true });
+    //           break;
+    //         case "em":
+    //           doc
+    //             .font(FONT_PATH)
+    //             .fontSize(12)
+    //             .text(inline.text, { continued: true, oblique: true });
+    //           break;
+    //         case "codespan":
+    //           doc
+    //             .font("Courier")
+    //             .fontSize(10)
+    //             .fillColor("gray")
+    //             .text(inline.text, { continued: true });
+    //           break;
+    //         default:
+    //           doc
+    //             .font(FONT_PATH)
+    //             .fontSize(12)
+    //             .text(inline.raw || inline.text, { continued: true });
+    //       }
+    //     }
+    //     doc.text(" "); // end continuation
+    //   } else {
+    //     doc.font(FONT_PATH).fontSize(12).text(token.text);
+    //   }
+    // };
+
+    //     for (const token of tokens) {
+    //       switch (token.type) {
+    //         case "heading":
+    //           doc
+    //             .fontSize([20, 16, 14][token.depth - 1] || 12)
+    //             .font(FONT_PATH)
+    //             .text(token.text, { underline: token.depth === 1 });
+    //           doc.moveDown(0.5);
+    //           break;
+
+    //         case "paragraph":
+    //           renderText(token);
+    //           doc.moveDown();
+    //           break;
+
+    //         case "list":
+    //           token.items.forEach((item: any) => {
+    //             doc.font(FONT_PATH).fontSize(12).text(`• ${item.text}`);
+    //           });
+    //           doc.moveDown();
+    //           break;
+
+    //         case "text":
+    //           doc.fontSize(12).text(token.text);
+    //           doc.moveDown();
+    //           break;
+
+    //         case "code":
+    //           doc
+    //             .font("Courier")
+    //             .fontSize(10)
+    //             .fillColor("gray")
+    //             .text(token.text, { indent: 20 });
+    //           doc.moveDown();
+    //           break;
+
+    //         case "blockquote":
+    //           doc
+    //             .font(FONT_PATH)
+    //             .fontSize(12)
+    //             .fillColor("gray")
+    //             .text(`> ${token.text}`, { indent: 10 });
+    //           doc.moveDown();
+    //           break;
+
+    //         case "space":
+    //           doc.moveDown();
+    //           break;
+
+    //         default:
+    //           break;
+    //       }
+    //     }
+    //     doc.end();
+    //   });
+    // }
+    for (const token of tokens) {
+      switch (token.type) {
+        case "heading":
+          doc
+            .fontSize([20, 16, 14][token.depth - 1] || 12)
+            .font(FONT_PATH)
+            .text(token.text, {
+              underline: token.depth === 1,
+            });
+          doc.moveDown(0.5);
+          break;
+        case "paragraph":
+          doc.font(FONT_PATH).fontSize(12).text(token.text);
+          doc.moveDown();
+          break;
+        case "list":
+          token.items.forEach((item: any) => {
+            doc.font(FONT_PATH).fontSize(12).text(`• ${item.text}`);
+          });
+          doc.moveDown();
+          break;
+        case "blockquote":
+          doc
+            .font(FONT_PATH)
+            .fontSize(12)
+            .fillColor("gray")
+            .text(`> ${token.text}`, {
+              indent: 10,
+            });
+          doc.moveDown();
+          doc.fillColor("black");
+          break;
+        case "code":
+          doc.font("Courier").fontSize(10).fillColor("gray").text(token.text, {
+            indent: 20,
+          });
+          doc.fillColor("black");
+          doc.moveDown();
+          break;
+        default:
+          break;
+      }
+    }
 
     doc.end();
   });
 }
-
 async function fetchEmailFromDynamoDB(
   githubUsername: string
 ): Promise<string | null> {
@@ -87,9 +239,14 @@ export const handler = async (
 
   console.log("Generating PDF from Bedrock analysis...");
 
+  // Extract only the `text` from content array
+  const markdownText =
+    analysisResult?.content?.find((item: any) => item.type === "text")?.text ||
+    "No content available";
+
   const pdfBuffer = await createPdfBuffer({
     title: `Analysis for ${repo}`,
-    content: JSON.stringify(analysisResult, null, 2),
+    content: markdownText,
   });
 
   const objectKey = `reports/${repo}-${Date.now()}-${uuidv4()}.pdf`;
