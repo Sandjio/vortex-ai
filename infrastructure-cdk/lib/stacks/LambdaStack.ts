@@ -196,7 +196,12 @@ export class LambdaStack extends Stack {
         TABLE_NAME: props.table.tableName,
       },
       bundling: {
-        externalModules: ["aws-lambda"],
+        externalModules: [
+          "aws-lambda",
+          "@aws-sdk/client-eventbridge",
+          "@aws-sdk/client-s3",
+          "@aws-sdk/client-dynamodb",
+        ],
         commandHooks: {
           beforeBundling(inputDir, outputDir): string[] {
             return [
@@ -231,6 +236,13 @@ export class LambdaStack extends Stack {
       runtime: lambda.Runtime.NODEJS_22_X,
       environment: {
         S3_BUCKET_NAME: pdfBucket.bucketName,
+      },
+      bundling: {
+        externalModules: [
+          "aws-lambda",
+          "@aws-sdk/client-s3",
+          "@aws-sdk/client-ses",
+        ],
       },
       timeout: Duration.seconds(30),
       memorySize: 256,
