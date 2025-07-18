@@ -27,6 +27,7 @@ export class LambdaStack extends Stack {
   public readonly lambdaAnalyzeDiff: lambdaNodejs.NodejsFunction;
   public readonly pdfGenerator: lambda.Function;
   public readonly registerEmailHandler: lambdaNodejs.NodejsFunction;
+  public readonly usageTracker: lambdaNodejs.NodejsFunction;
 
   public readonly emailSender: lambdaNodejs.NodejsFunction;
 
@@ -276,6 +277,25 @@ export class LambdaStack extends Stack {
     );
     props.table.grantWriteData(this.registerEmailHandler);
 
+    this.usageTracker = new lambdaNodejs.NodejsFunction(this, "UsageTracker", {
+      entry: path.join(__dirname, "..", "..", "lambda", "usageTracker.ts"),
+      runtime: lambda.Runtime.NODEJS_22_X,
+      environment: { TABLE_NAME: props.table.tableName },
+      bundling: {
+        externalModules: [
+          "aws-lambda",
+          "@aws-sdk/client-dynamodb",
+          "@aws-sdk/lib-dynamodb",
+        ],
+      },
+      projectRoot: path.join(__dirname, "../.."),
+      timeout: Duration.seconds(15),
+      memorySize: 256,
+      logRetention: logs.RetentionDays.ONE_WEEK,
+    });
+    // Grant permissions to the usageTracker to read and write from the DynamoDB table
+    props.table.grantReadWriteData(this.usageTracker);
+
     new events.Rule(this, `PRDataToDynamoRule-${stageName}`, {
       eventBus: props.eventBus,
       enabled: true,
@@ -324,6 +344,18 @@ export class LambdaStack extends Stack {
         detailType: ["bedrock.response"],
       },
       targets: [new targets.LambdaFunction(this.pdfGenerator)],
+    });
+
+    new events.Rule(this, `UsageTrackingRule-${stageName}`, {
+      eventBus: props.eventBus,
+      enabled: true,
+      ruleName: `UsageTrackingRule-${stageName}`,
+      description: "Tracks usage for billing on successful analysis",
+      eventPattern: {
+        source: ["vortex.github"],
+        detailType: ["bedrock.response"],
+      },
+      targets: [new targets.LambdaFunction(this.usageTracker)],
     });
 
     new events.Rule(this, `SendEmailRule-${stageName}`, {
