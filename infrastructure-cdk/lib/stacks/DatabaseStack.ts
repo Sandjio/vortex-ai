@@ -2,7 +2,6 @@ import {
   Stack,
   StackProps,
   RemovalPolicy,
-  CfnOutput,
   aws_dynamodb as dynamodb,
 } from "aws-cdk-lib";
 import { Construct } from "constructs";
@@ -28,7 +27,42 @@ export class DatabaseStack extends Stack {
           props.stageName === "prod"
             ? RemovalPolicy.RETAIN
             : RemovalPolicy.DESTROY,
+        pointInTimeRecovery: props.stageName === "prod",
       }
     );
+
+    // Add GSI for billing period queries (usage records)
+    this.table.addGlobalSecondaryIndex({
+      indexName: "BillingPeriodIndex",
+      partitionKey: {
+        name: "billingPeriod",
+        type: dynamodb.AttributeType.STRING,
+      },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+    });
+
+    // Add GSI for GitHub username lookups (user accounts)
+    this.table.addGlobalSecondaryIndex({
+      indexName: "GitHubUsernameIndex",
+      partitionKey: {
+        name: "githubUsername",
+        type: dynamodb.AttributeType.STRING,
+      },
+      sortKey: { name: "SK", type: dynamodb.AttributeType.STRING },
+    });
+
+    // Add GSI for invoice status queries
+    this.table.addGlobalSecondaryIndex({
+      indexName: "InvoiceStatusIndex",
+      partitionKey: { name: "status", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "dueDate", type: dynamodb.AttributeType.STRING },
+    });
+
+    // Add GSI for active pricing tiers
+    this.table.addGlobalSecondaryIndex({
+      indexName: "ActivePricingIndex",
+      partitionKey: { name: "isActive", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "effectiveDate", type: dynamodb.AttributeType.STRING },
+    });
   }
 }
