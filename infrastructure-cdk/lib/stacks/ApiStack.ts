@@ -13,6 +13,7 @@ interface ApiStackProps extends StackProps {
   registerEmailHandler: lambda.IFunction;
   accountManager: lambda.IFunction;
   paymentMethodManager: lambda.IFunction;
+  pricingManager: lambda.IFunction;
 }
 
 export class ApiStack extends Stack {
@@ -108,6 +109,42 @@ export class ApiStack extends Stack {
       ),
     });
 
+    // Admin pricing management endpoints
+    api.addRoutes({
+      path: "/admin/pricing/tiers",
+      methods: [
+        apiGatewayV2.HttpMethod.GET,
+        apiGatewayV2.HttpMethod.POST,
+        apiGatewayV2.HttpMethod.OPTIONS,
+      ],
+      integration: new integrations.HttpLambdaIntegration(
+        "PricingManagerIntegration",
+        props.pricingManager
+      ),
+    });
+
+    api.addRoutes({
+      path: "/admin/pricing/tiers/{tierId}",
+      methods: [
+        apiGatewayV2.HttpMethod.PUT,
+        apiGatewayV2.HttpMethod.DELETE,
+        apiGatewayV2.HttpMethod.OPTIONS,
+      ],
+      integration: new integrations.HttpLambdaIntegration(
+        "PricingManagerByIdIntegration",
+        props.pricingManager
+      ),
+    });
+
+    api.addRoutes({
+      path: "/admin/pricing/calculate",
+      methods: [apiGatewayV2.HttpMethod.GET, apiGatewayV2.HttpMethod.OPTIONS],
+      integration: new integrations.HttpLambdaIntegration(
+        "PricingCalculatorIntegration",
+        props.pricingManager
+      ),
+    });
+
     new CfnOutput(this, "ApiUrl", {
       value: api.apiEndpoint + "/webhook",
     });
@@ -122,6 +159,14 @@ export class ApiStack extends Stack {
 
     new CfnOutput(this, "PaymentMethodsApiUrl", {
       value: api.apiEndpoint + "/accounts/{userId}/payment-methods",
+    });
+
+    new CfnOutput(this, "PricingTiersApiUrl", {
+      value: api.apiEndpoint + "/admin/pricing/tiers",
+    });
+
+    new CfnOutput(this, "PricingCalculatorApiUrl", {
+      value: api.apiEndpoint + "/admin/pricing/calculate",
     });
   }
 }

@@ -486,10 +486,11 @@ export class PricingConfigService {
     const response = await docClient.send(
       new QueryCommand({
         TableName: TABLE_NAME,
-        IndexName: "ActivePricingIndex",
-        KeyConditionExpression: "isActive = :active",
+        KeyConditionExpression: "PK = :pk",
+        FilterExpression: "isActive = :active",
         ExpressionAttributeValues: {
-          ":active": "true",
+          ":pk": "PRICING",
+          ":active": true,
         },
       })
     );

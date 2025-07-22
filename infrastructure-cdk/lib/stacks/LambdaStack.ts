@@ -30,6 +30,7 @@ export class LambdaStack extends Stack {
   public readonly usageTracker: lambdaNodejs.NodejsFunction;
   public readonly accountManager: lambdaNodejs.NodejsFunction;
   public readonly paymentMethodManager: lambdaNodejs.NodejsFunction;
+  public readonly pricingManager: lambdaNodejs.NodejsFunction;
 
   public readonly emailSender: lambdaNodejs.NodejsFunction;
 
@@ -349,6 +350,29 @@ export class LambdaStack extends Stack {
     );
     // Grant permissions to the paymentMethodManager to read and write from the DynamoDB table
     props.table.grantReadWriteData(this.paymentMethodManager);
+
+    this.pricingManager = new lambdaNodejs.NodejsFunction(
+      this,
+      "PricingManager",
+      {
+        entry: path.join(__dirname, "..", "..", "lambda", "pricingManager.ts"),
+        runtime: lambda.Runtime.NODEJS_22_X,
+        environment: { TABLE_NAME: props.table.tableName },
+        bundling: {
+          externalModules: [
+            "aws-lambda",
+            "@aws-sdk/client-dynamodb",
+            "@aws-sdk/lib-dynamodb",
+          ],
+        },
+        projectRoot: path.join(__dirname, "../.."),
+        timeout: Duration.seconds(15),
+        memorySize: 256,
+        logRetention: logs.RetentionDays.ONE_WEEK,
+      }
+    );
+    // Grant permissions to the pricingManager to read and write from the DynamoDB table
+    props.table.grantReadWriteData(this.pricingManager);
 
     new events.Rule(this, `PRDataToDynamoRule-${stageName}`, {
       eventBus: props.eventBus,

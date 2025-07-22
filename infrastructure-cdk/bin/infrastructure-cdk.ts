@@ -43,6 +43,7 @@ try {
     registerEmailHandler: lambdaStack.registerEmailHandler,
     accountManager: lambdaStack.accountManager,
     paymentMethodManager: lambdaStack.paymentMethodManager,
+    pricingManager: lambdaStack.pricingManager,
   });
 } catch (error) {
   console.error("Error creating stacks:", error);
