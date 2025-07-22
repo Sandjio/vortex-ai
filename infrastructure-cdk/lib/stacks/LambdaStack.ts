@@ -28,6 +28,8 @@ export class LambdaStack extends Stack {
   public readonly pdfGenerator: lambda.Function;
   public readonly registerEmailHandler: lambdaNodejs.NodejsFunction;
   public readonly usageTracker: lambdaNodejs.NodejsFunction;
+  public readonly accountManager: lambdaNodejs.NodejsFunction;
+  public readonly paymentMethodManager: lambdaNodejs.NodejsFunction;
 
   public readonly emailSender: lambdaNodejs.NodejsFunction;
 
@@ -295,6 +297,58 @@ export class LambdaStack extends Stack {
     });
     // Grant permissions to the usageTracker to read and write from the DynamoDB table
     props.table.grantReadWriteData(this.usageTracker);
+
+    this.accountManager = new lambdaNodejs.NodejsFunction(
+      this,
+      "AccountManager",
+      {
+        entry: path.join(__dirname, "..", "..", "lambda", "accountManager.ts"),
+        runtime: lambda.Runtime.NODEJS_22_X,
+        environment: { TABLE_NAME: props.table.tableName },
+        bundling: {
+          externalModules: [
+            "aws-lambda",
+            "@aws-sdk/client-dynamodb",
+            "@aws-sdk/lib-dynamodb",
+          ],
+        },
+        projectRoot: path.join(__dirname, "../.."),
+        timeout: Duration.seconds(15),
+        memorySize: 256,
+        logRetention: logs.RetentionDays.ONE_WEEK,
+      }
+    );
+    // Grant permissions to the accountManager to read and write from the DynamoDB table
+    props.table.grantReadWriteData(this.accountManager);
+
+    this.paymentMethodManager = new lambdaNodejs.NodejsFunction(
+      this,
+      "PaymentMethodManager",
+      {
+        entry: path.join(
+          __dirname,
+          "..",
+          "..",
+          "lambda",
+          "paymentMethodManager.ts"
+        ),
+        runtime: lambda.Runtime.NODEJS_22_X,
+        environment: { TABLE_NAME: props.table.tableName },
+        bundling: {
+          externalModules: [
+            "aws-lambda",
+            "@aws-sdk/client-dynamodb",
+            "@aws-sdk/lib-dynamodb",
+          ],
+        },
+        projectRoot: path.join(__dirname, "../.."),
+        timeout: Duration.seconds(15),
+        memorySize: 256,
+        logRetention: logs.RetentionDays.ONE_WEEK,
+      }
+    );
+    // Grant permissions to the paymentMethodManager to read and write from the DynamoDB table
+    props.table.grantReadWriteData(this.paymentMethodManager);
 
     new events.Rule(this, `PRDataToDynamoRule-${stageName}`, {
       eventBus: props.eventBus,

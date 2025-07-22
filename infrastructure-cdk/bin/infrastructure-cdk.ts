@@ -41,6 +41,8 @@ try {
   new ApiStack(app, `ApiStack-${stageName}`, {
     handler: lambdaStack.webhookHandler,
     registerEmailHandler: lambdaStack.registerEmailHandler,
+    accountManager: lambdaStack.accountManager,
+    paymentMethodManager: lambdaStack.paymentMethodManager,
   });
 } catch (error) {
   console.error("Error creating stacks:", error);
