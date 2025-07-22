@@ -364,7 +364,7 @@ export async function calculateBillingForUsage(
 
     if (tierStart <= tierEnd) {
       const tierUsage = tierEnd - tierStart + 1;
-      const tierAmount = tierUsage * tier.pricePerEvent;
+      const tierAmount = Math.round(tierUsage * tier.pricePerEvent * 100) / 100;
 
       breakdown.push({
         tier: tier.name,

@@ -31,7 +31,7 @@
   - Write unit tests for pricing calculations
   - _Requirements: 3.1, 3.2, 3.3, 3.4_
 
-- [ ] 5. Build billing calculation engine
+- [x] 5. Build billing calculation engine
 
   - Create scheduled Lambda function for monthly billing processing
   - Implement usage aggregation and billing calculation logic

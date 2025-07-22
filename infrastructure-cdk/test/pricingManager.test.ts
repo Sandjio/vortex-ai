@@ -601,3 +601,353 @@ describe("PricingManager", () => {
     });
   });
 });
+describe("Advanced Volume Discount Scenarios", () => {
+  it("should apply volume discounts correctly for enterprise-level usage", async () => {
+    const enterpriseTiers: PricingTier[] = [
+      {
+        tierId: "starter",
+        name: "Starter",
+        minUsage: 0,
+        maxUsage: 1000,
+        pricePerEvent: 0.1,
+        effectiveDate: "2024-01-01T00:00:00.000Z",
+        isActive: true,
+      },
+      {
+        tierId: "business",
+        name: "Business",
+        minUsage: 1001,
+        maxUsage: 10000,
+        pricePerEvent: 0.05,
+        effectiveDate: "2024-01-01T00:00:00.000Z",
+        isActive: true,
+      },
+      {
+        tierId: "enterprise",
+        name: "Enterprise",
+        minUsage: 10001,
+        maxUsage: 100000,
+        pricePerEvent: 0.02,
+        effectiveDate: "2024-01-01T00:00:00.000Z",
+        isActive: true,
+      },
+    ];
+
+    mockPricingConfigService.getActivePricingTiers.mockResolvedValue(
+      enterpriseTiers
+    );
+
+    const result = await calculateBillingForUsage(
+      "enterprise-user",
+      "2024-01",
+      25000
+    );
+
+    expect(result.breakdown).toHaveLength(3);
+
+    // Starter tier: 0-1000 (1001 events)
+    expect(result.breakdown[0].tier).toBe("Starter");
+    expect(result.breakdown[0].eventCount).toBe(1001);
+    expect(result.breakdown[0].rate).toBe(0.1);
+    expect(result.breakdown[0].amount).toBeCloseTo(100.1, 2);
+
+    // Business tier: 1001-10000 (9000 events)
+    expect(result.breakdown[1].tier).toBe("Business");
+    expect(result.breakdown[1].eventCount).toBe(9000);
+    expect(result.breakdown[1].rate).toBe(0.05);
+    expect(result.breakdown[1].amount).toBe(450.0);
+
+    // Enterprise tier: 10001-25000 (15000 events)
+    expect(result.breakdown[2].tier).toBe("Enterprise");
+    expect(result.breakdown[2].eventCount).toBe(15000);
+    expect(result.breakdown[2].rate).toBe(0.02);
+    expect(result.breakdown[2].amount).toBe(300.0);
+
+    expect(result.totalAmount).toBe(850.1);
+    expect(result.discountTier).toBe("Enterprise");
+  });
+
+  it("should handle micro-usage with fractional pricing", async () => {
+    const microTiers: PricingTier[] = [
+      {
+        tierId: "micro",
+        name: "Micro",
+        minUsage: 0,
+        maxUsage: 10,
+        pricePerEvent: 0.001,
+        effectiveDate: "2024-01-01T00:00:00.000Z",
+        isActive: true,
+      },
+      {
+        tierId: "small",
+        name: "Small",
+        minUsage: 11,
+        maxUsage: 100,
+        pricePerEvent: 0.0008,
+        effectiveDate: "2024-01-01T00:00:00.000Z",
+        isActive: true,
+      },
+    ];
+
+    mockPricingConfigService.getActivePricingTiers.mockResolvedValue(
+      microTiers
+    );
+
+    const result = await calculateBillingForUsage("micro-user", "2024-01", 15);
+
+    expect(result.breakdown).toHaveLength(2);
+    expect(result.breakdown[0].amount).toBe(0.01); // 11 * 0.001 = 0.011, rounded to 0.01
+    expect(result.breakdown[1].amount).toBe(0.0); // 4 * 0.0008 = 0.0032, rounded to 0.00
+    expect(result.totalAmount).toBe(0.01);
+  });
+
+  it("should handle exact tier boundary usage", async () => {
+    const boundaryTiers: PricingTier[] = [
+      {
+        tierId: "tier1",
+        name: "Tier 1",
+        minUsage: 0,
+        maxUsage: 100,
+        pricePerEvent: 0.1,
+        effectiveDate: "2024-01-01T00:00:00.000Z",
+        isActive: true,
+      },
+      {
+        tierId: "tier2",
+        name: "Tier 2",
+        minUsage: 101,
+        maxUsage: 200,
+        pricePerEvent: 0.08,
+        effectiveDate: "2024-01-01T00:00:00.000Z",
+        isActive: true,
+      },
+    ];
+
+    mockPricingConfigService.getActivePricingTiers.mockResolvedValue(
+      boundaryTiers
+    );
+
+    // Test exactly at tier boundary
+    const result = await calculateBillingForUsage(
+      "boundary-user",
+      "2024-01",
+      101
+    );
+
+    expect(result.breakdown).toHaveLength(2);
+    expect(result.breakdown[0].eventCount).toBe(101);
+    expect(result.breakdown[1].eventCount).toBe(1);
+    expect(result.totalAmount).toBe(10.18); // 101 * 0.10 + 1 * 0.08
+  });
+
+  it("should handle massive usage with overflow pricing", async () => {
+    const limitedTiers: PricingTier[] = [
+      {
+        tierId: "standard",
+        name: "Standard",
+        minUsage: 0,
+        maxUsage: 1000,
+        pricePerEvent: 0.05,
+        effectiveDate: "2024-01-01T00:00:00.000Z",
+        isActive: true,
+      },
+      {
+        tierId: "premium",
+        name: "Premium",
+        minUsage: 1001,
+        maxUsage: 5000,
+        pricePerEvent: 0.03,
+        effectiveDate: "2024-01-01T00:00:00.000Z",
+        isActive: true,
+      },
+    ];
+
+    mockPricingConfigService.getActivePricingTiers.mockResolvedValue(
+      limitedTiers
+    );
+
+    const result = await calculateBillingForUsage(
+      "massive-user",
+      "2024-01",
+      10000
+    );
+
+    expect(result.breakdown).toHaveLength(3);
+
+    // Standard tier
+    expect(result.breakdown[0].tier).toBe("Standard");
+    expect(result.breakdown[0].eventCount).toBe(1001);
+
+    // Premium tier
+    expect(result.breakdown[1].tier).toBe("Premium");
+    expect(result.breakdown[1].eventCount).toBe(4000);
+
+    // Overflow using premium rate
+    expect(result.breakdown[2].tier).toBe("Premium (overflow)");
+    expect(result.breakdown[2].eventCount).toBe(4999); // 10000 - 5001
+    expect(result.breakdown[2].rate).toBe(0.03);
+
+    expect(result.totalAmount).toBeGreaterThan(300);
+  });
+});
+
+describe("Billing Calculation Error Handling", () => {
+  it("should handle database errors gracefully", async () => {
+    mockPricingConfigService.getActivePricingTiers.mockRejectedValue(
+      new Error("Database connection failed")
+    );
+
+    await expect(
+      calculateBillingForUsage("user1", "2024-01", 100)
+    ).rejects.toThrow("Database connection failed");
+  });
+
+  it("should handle malformed pricing tier data", async () => {
+    const malformedTiers: any[] = [
+      {
+        tierId: "malformed",
+        name: "Malformed",
+        minUsage: "not-a-number",
+        maxUsage: 100,
+        pricePerEvent: 0.1,
+        effectiveDate: "2024-01-01T00:00:00.000Z",
+        isActive: true,
+      },
+    ];
+
+    mockPricingConfigService.getActivePricingTiers.mockResolvedValue(
+      malformedTiers
+    );
+
+    // Should handle gracefully or throw appropriate error
+    const result = await calculateBillingForUsage("user1", "2024-01", 50);
+
+    // The function should either handle this gracefully or we should add validation
+    expect(result).toBeDefined();
+  });
+
+  it("should handle negative usage gracefully", async () => {
+    const normalTiers: PricingTier[] = [
+      {
+        tierId: "normal",
+        name: "Normal",
+        minUsage: 0,
+        maxUsage: 100,
+        pricePerEvent: 0.1,
+        effectiveDate: "2024-01-01T00:00:00.000Z",
+        isActive: true,
+      },
+    ];
+
+    mockPricingConfigService.getActivePricingTiers.mockResolvedValue(
+      normalTiers
+    );
+
+    const result = await calculateBillingForUsage("user1", "2024-01", -10);
+
+    // Should handle negative usage (likely treat as 0)
+    expect(result.totalAmount).toBe(0);
+    expect(result.usageCount).toBe(-10); // Preserves input but calculates as 0
+  });
+});
+
+describe("Performance and Edge Cases", () => {
+  it("should handle very large tier configurations efficiently", async () => {
+    // Create 100 tiers to test performance
+    const manyTiers: PricingTier[] = Array.from({ length: 100 }, (_, i) => ({
+      tierId: `tier-${i}`,
+      name: `Tier ${i}`,
+      minUsage: i * 1000,
+      maxUsage: (i + 1) * 1000 - 1,
+      pricePerEvent: 0.1 - i * 0.001, // Decreasing price
+      effectiveDate: "2024-01-01T00:00:00.000Z",
+      isActive: true,
+    }));
+
+    mockPricingConfigService.getActivePricingTiers.mockResolvedValue(manyTiers);
+
+    const startTime = Date.now();
+    const result = await calculateBillingForUsage(
+      "performance-user",
+      "2024-01",
+      50000
+    );
+    const endTime = Date.now();
+
+    expect(endTime - startTime).toBeLessThan(1000); // Should complete within 1 second
+    expect(result.totalAmount).toBeGreaterThan(0);
+    expect(result.breakdown.length).toBeGreaterThan(0);
+  });
+
+  it("should handle tiers with identical pricing", async () => {
+    const identicalPricingTiers: PricingTier[] = [
+      {
+        tierId: "tier1",
+        name: "Tier 1",
+        minUsage: 0,
+        maxUsage: 100,
+        pricePerEvent: 0.05,
+        effectiveDate: "2024-01-01T00:00:00.000Z",
+        isActive: true,
+      },
+      {
+        tierId: "tier2",
+        name: "Tier 2",
+        minUsage: 101,
+        maxUsage: 200,
+        pricePerEvent: 0.05, // Same price as tier 1
+        effectiveDate: "2024-01-01T00:00:00.000Z",
+        isActive: true,
+      },
+    ];
+
+    mockPricingConfigService.getActivePricingTiers.mockResolvedValue(
+      identicalPricingTiers
+    );
+
+    const result = await calculateBillingForUsage(
+      "identical-user",
+      "2024-01",
+      150
+    );
+
+    expect(result.breakdown).toHaveLength(2);
+    expect(result.breakdown[0].rate).toBe(0.05);
+    expect(result.breakdown[1].rate).toBe(0.05);
+    expect(result.totalAmount).toBe(7.55); // 101 * 0.05 + 49 * 0.05
+  });
+
+  it("should handle free tier correctly", async () => {
+    const freeTierConfig: PricingTier[] = [
+      {
+        tierId: "free",
+        name: "Free Tier",
+        minUsage: 0,
+        maxUsage: 100,
+        pricePerEvent: 0.0,
+        effectiveDate: "2024-01-01T00:00:00.000Z",
+        isActive: true,
+      },
+      {
+        tierId: "paid",
+        name: "Paid Tier",
+        minUsage: 101,
+        maxUsage: 1000,
+        pricePerEvent: 0.1,
+        effectiveDate: "2024-01-01T00:00:00.000Z",
+        isActive: true,
+      },
+    ];
+
+    mockPricingConfigService.getActivePricingTiers.mockResolvedValue(
+      freeTierConfig
+    );
+
+    const result = await calculateBillingForUsage("free-user", "2024-01", 150);
+
+    expect(result.breakdown).toHaveLength(2);
+    expect(result.breakdown[0].amount).toBe(0.0); // Free tier
+    expect(result.breakdown[1].amount).toBe(4.9); // 49 * 0.10
+    expect(result.totalAmount).toBe(4.9);
+  });
+});
