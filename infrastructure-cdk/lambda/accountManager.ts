@@ -8,7 +8,9 @@ import {
   UserAccount,
   BillingPreferences,
   UsageLimits,
+  AuditChange,
 } from "../lib/types/billing";
+import { AuditLogger } from "../lib/utils/auditLogger";
 
 // Validation functions
 const validateEmail = (email: string): boolean => {
@@ -205,6 +207,22 @@ async function createUserAccount(
 
     await UserAccountsService.createUserAccount(userAccount);
 
+    // Log account creation audit event
+    await AuditLogger.logAccountModification(
+      userId,
+      "create",
+      userId, // User created their own account
+      "user",
+      undefined, // No changes for creation
+      {
+        source: "account_manager",
+        githubUsername: body.githubUsername,
+        email: body.email,
+      },
+      event.requestContext?.http?.sourceIp,
+      event.headers?.["user-agent"]
+    );
+
     console.log("User account created successfully:", userId);
 
     return {
@@ -397,7 +415,33 @@ async function updateUserAccount(
       };
     }
 
+    // Create audit changes array
+    const changes: AuditChange[] = [];
+    for (const [field, newValue] of Object.entries(updates)) {
+      const oldValue = (existingUser as any)[field];
+      changes.push({
+        field,
+        oldValue,
+        newValue,
+      });
+    }
+
     await UserAccountsService.updateUserAccount(userId, updates);
+
+    // Log account modification audit event
+    await AuditLogger.logAccountModification(
+      userId,
+      "update",
+      userId, // Assuming user is updating their own account
+      "user",
+      changes,
+      {
+        source: "account_manager",
+        updatedFields: Object.keys(updates),
+      },
+      event.requestContext?.http?.sourceIp,
+      event.headers?.["user-agent"]
+    );
 
     console.log("User account updated successfully:", userId);
 

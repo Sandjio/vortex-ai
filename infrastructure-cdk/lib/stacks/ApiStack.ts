@@ -14,6 +14,8 @@ interface ApiStackProps extends StackProps {
   accountManager: lambda.IFunction;
   paymentMethodManager: lambda.IFunction;
   pricingManager: lambda.IFunction;
+  billingApi: lambda.IFunction;
+  auditApi: lambda.IFunction;
 }
 
 export class ApiStack extends Stack {
@@ -145,6 +147,89 @@ export class ApiStack extends Stack {
       ),
     });
 
+    // Billing API endpoints
+    api.addRoutes({
+      path: "/billing/usage-history",
+      methods: [apiGatewayV2.HttpMethod.GET, apiGatewayV2.HttpMethod.OPTIONS],
+      integration: new integrations.HttpLambdaIntegration(
+        "BillingUsageHistoryIntegration",
+        props.billingApi
+      ),
+    });
+
+    api.addRoutes({
+      path: "/billing/current-usage",
+      methods: [apiGatewayV2.HttpMethod.GET, apiGatewayV2.HttpMethod.OPTIONS],
+      integration: new integrations.HttpLambdaIntegration(
+        "BillingCurrentUsageIntegration",
+        props.billingApi
+      ),
+    });
+
+    api.addRoutes({
+      path: "/billing/invoices",
+      methods: [apiGatewayV2.HttpMethod.GET, apiGatewayV2.HttpMethod.OPTIONS],
+      integration: new integrations.HttpLambdaIntegration(
+        "BillingInvoicesIntegration",
+        props.billingApi
+      ),
+    });
+
+    api.addRoutes({
+      path: "/billing/invoices/{billingPeriod}",
+      methods: [apiGatewayV2.HttpMethod.GET, apiGatewayV2.HttpMethod.OPTIONS],
+      integration: new integrations.HttpLambdaIntegration(
+        "BillingInvoiceByPeriodIntegration",
+        props.billingApi
+      ),
+    });
+
+    // Audit API endpoints
+    api.addRoutes({
+      path: "/audit/user",
+      methods: [apiGatewayV2.HttpMethod.GET, apiGatewayV2.HttpMethod.OPTIONS],
+      integration: new integrations.HttpLambdaIntegration(
+        "AuditUserLogsIntegration",
+        props.auditApi
+      ),
+    });
+
+    api.addRoutes({
+      path: "/audit/entity",
+      methods: [apiGatewayV2.HttpMethod.GET, apiGatewayV2.HttpMethod.OPTIONS],
+      integration: new integrations.HttpLambdaIntegration(
+        "AuditEntityLogsIntegration",
+        props.auditApi
+      ),
+    });
+
+    api.addRoutes({
+      path: "/audit/entity/{entityType}/{entityId}",
+      methods: [apiGatewayV2.HttpMethod.GET, apiGatewayV2.HttpMethod.OPTIONS],
+      integration: new integrations.HttpLambdaIntegration(
+        "AuditEntityLogsByPathIntegration",
+        props.auditApi
+      ),
+    });
+
+    api.addRoutes({
+      path: "/audit/billing-dispute",
+      methods: [apiGatewayV2.HttpMethod.GET, apiGatewayV2.HttpMethod.OPTIONS],
+      integration: new integrations.HttpLambdaIntegration(
+        "AuditBillingDisputeIntegration",
+        props.auditApi
+      ),
+    });
+
+    api.addRoutes({
+      path: "/audit/events",
+      methods: [apiGatewayV2.HttpMethod.GET, apiGatewayV2.HttpMethod.OPTIONS],
+      integration: new integrations.HttpLambdaIntegration(
+        "AuditEventsByTypeIntegration",
+        props.auditApi
+      ),
+    });
+
     new CfnOutput(this, "ApiUrl", {
       value: api.apiEndpoint + "/webhook",
     });
@@ -167,6 +252,34 @@ export class ApiStack extends Stack {
 
     new CfnOutput(this, "PricingCalculatorApiUrl", {
       value: api.apiEndpoint + "/admin/pricing/calculate",
+    });
+
+    new CfnOutput(this, "BillingUsageHistoryApiUrl", {
+      value: api.apiEndpoint + "/billing/usage-history",
+    });
+
+    new CfnOutput(this, "BillingCurrentUsageApiUrl", {
+      value: api.apiEndpoint + "/billing/current-usage",
+    });
+
+    new CfnOutput(this, "BillingInvoicesApiUrl", {
+      value: api.apiEndpoint + "/billing/invoices",
+    });
+
+    new CfnOutput(this, "AuditUserLogsApiUrl", {
+      value: api.apiEndpoint + "/audit/user",
+    });
+
+    new CfnOutput(this, "AuditEntityLogsApiUrl", {
+      value: api.apiEndpoint + "/audit/entity",
+    });
+
+    new CfnOutput(this, "AuditBillingDisputeApiUrl", {
+      value: api.apiEndpoint + "/audit/billing-dispute",
+    });
+
+    new CfnOutput(this, "AuditEventsByTypeApiUrl", {
+      value: api.apiEndpoint + "/audit/events",
     });
   }
 }

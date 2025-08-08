@@ -44,6 +44,8 @@ try {
     accountManager: lambdaStack.accountManager,
     paymentMethodManager: lambdaStack.paymentMethodManager,
     pricingManager: lambdaStack.pricingManager,
+    billingApi: lambdaStack.billingApi,
+    auditApi: lambdaStack.auditApi,
   });
 } catch (error) {
   console.error("Error creating stacks:", error);

@@ -58,7 +58,7 @@
   - Write tests for limit enforcement and alert functionality
   - _Requirements: 5.1, 5.2, 5.3_
 
-- [ ] 8. Build billing API endpoints
+- [x] 8. Build billing API endpoints
 
   - Create API Gateway routes for billing management
   - Implement endpoints for usage history, invoice retrieval, and payment methods
@@ -67,7 +67,7 @@
   - Write integration tests for all billing endpoints
   - _Requirements: 2.3, 7.3, 7.4_
 
-- [ ] 9. Create audit logging system
+- [x] 9. Create audit logging system
 
   - Implement immutable audit log for all billing events
   - Add audit trail functionality for pricing changes and account modifications

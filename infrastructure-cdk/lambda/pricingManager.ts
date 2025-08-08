@@ -4,7 +4,9 @@ import {
   PricingTier,
   UsageBreakdown,
   BillingCalculation,
+  AuditChange,
 } from "../lib/types/billing";
+import { AuditLogger } from "../lib/utils/auditLogger";
 
 /**
  * Lambda handler for pricing configuration management
@@ -194,6 +196,21 @@ async function handleCreatePricingTier(
 
     await PricingConfigService.setPricingTier(pricingTier);
 
+    // Log pricing tier creation audit event
+    await AuditLogger.logPricingChange(
+      pricingTier.tierId,
+      "create",
+      "admin", // Assuming admin is creating pricing tiers
+      undefined, // No changes for creation
+      {
+        source: "pricing_manager",
+        tierName: pricingTier.name,
+        pricePerEvent: pricingTier.pricePerEvent,
+        minUsage: pricingTier.minUsage,
+        maxUsage: pricingTier.maxUsage,
+      }
+    );
+
     return {
       statusCode: 201,
       headers,
@@ -248,6 +265,10 @@ async function handleUpdatePricingTier(
       };
     }
 
+    // Get existing tier to track changes
+    const existingTiers = await PricingConfigService.getActivePricingTiers();
+    const existingTier = existingTiers.find((t) => t.tierId === tierId);
+
     const pricingTier: PricingTier = {
       tierId,
       name: tierData.name,
@@ -259,6 +280,60 @@ async function handleUpdatePricingTier(
     };
 
     await PricingConfigService.setPricingTier(pricingTier);
+
+    // Log pricing tier update audit event
+    const changes: AuditChange[] = [];
+    if (existingTier) {
+      if (existingTier.name !== pricingTier.name) {
+        changes.push({
+          field: "name",
+          oldValue: existingTier.name,
+          newValue: pricingTier.name,
+        });
+      }
+      if (existingTier.minUsage !== pricingTier.minUsage) {
+        changes.push({
+          field: "minUsage",
+          oldValue: existingTier.minUsage,
+          newValue: pricingTier.minUsage,
+        });
+      }
+      if (existingTier.maxUsage !== pricingTier.maxUsage) {
+        changes.push({
+          field: "maxUsage",
+          oldValue: existingTier.maxUsage,
+          newValue: pricingTier.maxUsage,
+        });
+      }
+      if (existingTier.pricePerEvent !== pricingTier.pricePerEvent) {
+        changes.push({
+          field: "pricePerEvent",
+          oldValue: existingTier.pricePerEvent,
+          newValue: pricingTier.pricePerEvent,
+        });
+      }
+      if (existingTier.isActive !== pricingTier.isActive) {
+        changes.push({
+          field: "isActive",
+          oldValue: existingTier.isActive,
+          newValue: pricingTier.isActive,
+        });
+      }
+    }
+
+    await AuditLogger.logPricingChange(
+      pricingTier.tierId,
+      "update",
+      "admin", // Assuming admin is updating pricing tiers
+      changes,
+      {
+        source: "pricing_manager",
+        tierName: pricingTier.name,
+        pricePerEvent: pricingTier.pricePerEvent,
+        minUsage: pricingTier.minUsage,
+        maxUsage: pricingTier.maxUsage,
+      }
+    );
 
     return {
       statusCode: 200,
@@ -313,6 +388,25 @@ async function handleDeactivatePricingTier(
     };
 
     await PricingConfigService.setPricingTier(deactivatedTier);
+
+    // Log pricing tier deactivation audit event
+    await AuditLogger.logPricingChange(
+      tierId,
+      "delete", // Using delete action for deactivation
+      "admin", // Assuming admin is deactivating pricing tiers
+      [
+        {
+          field: "isActive",
+          oldValue: existingTier.isActive,
+          newValue: false,
+        },
+      ],
+      {
+        source: "pricing_manager",
+        tierName: existingTier.name,
+        action: "deactivate",
+      }
+    );
 
     return {
       statusCode: 200,

@@ -18,7 +18,9 @@ import {
   PaymentMethodItem,
   InvoiceItem,
   PricingConfigItem,
+  AuditChange,
 } from "../types/billing";
+import { AuditLogger } from "./auditLogger";
 
 // Initialize DynamoDB client
 const client = new DynamoDBClient({});
@@ -53,6 +55,20 @@ export class UsageRecordsService {
         Item: item,
         ConditionExpression: "attribute_not_exists(PK)", // Prevent duplicates
       })
+    );
+
+    // Log usage event for audit trail
+    await AuditLogger.logUsageEvent(
+      usageEvent.eventId,
+      usageEvent.userId,
+      "create",
+      {
+        eventType: usageEvent.eventType,
+        repository: usageEvent.repository,
+        billingPeriod: usageEvent.billingPeriod,
+        analysisSuccess: usageEvent.analysisSuccess,
+        githubUsername: usageEvent.githubUsername,
+      }
     );
   }
 
@@ -121,7 +137,10 @@ export class UserAccountsService {
   /**
    * Create a new user account
    */
-  static async createUserAccount(userAccount: UserAccount): Promise<void> {
+  static async createUserAccount(
+    userAccount: UserAccount,
+    actorId: string = "system"
+  ): Promise<void> {
     const item: UserAccountItem = {
       PK: `USER#${userAccount.userId}`,
       SK: "PROFILE",
@@ -140,6 +159,20 @@ export class UserAccountsService {
         Item: item,
         ConditionExpression: "attribute_not_exists(PK)",
       })
+    );
+
+    // Log account creation for audit trail
+    await AuditLogger.logAccountModification(
+      userAccount.userId,
+      "create",
+      actorId,
+      "system",
+      undefined,
+      {
+        githubUsername: userAccount.githubUsername,
+        email: userAccount.email,
+        status: userAccount.status,
+      }
     );
   }
 
@@ -218,32 +251,70 @@ export class UserAccountsService {
    */
   static async updateUserAccount(
     userId: string,
-    updates: Partial<UserAccount>
+    updates: Partial<UserAccount>,
+    actorId: string = "system",
+    actorType: "user" | "system" | "admin" = "system"
   ): Promise<void> {
+    // Get current account for audit trail
+    const currentAccount = await this.getUserAccount(userId);
+
     const updateExpression: string[] = [];
     const expressionAttributeValues: Record<string, any> = {};
     const expressionAttributeNames: Record<string, string> = {};
+    const changes: AuditChange[] = [];
 
     if (updates.billingPreferences) {
       updateExpression.push("billingPreferences = :billingPreferences");
       expressionAttributeValues[":billingPreferences"] =
         updates.billingPreferences;
+
+      if (currentAccount) {
+        changes.push({
+          field: "billingPreferences",
+          oldValue: currentAccount.billingPreferences,
+          newValue: updates.billingPreferences,
+        });
+      }
     }
 
     if (updates.usageLimits) {
       updateExpression.push("usageLimits = :usageLimits");
       expressionAttributeValues[":usageLimits"] = updates.usageLimits;
+
+      if (currentAccount) {
+        changes.push({
+          field: "usageLimits",
+          oldValue: currentAccount.usageLimits,
+          newValue: updates.usageLimits,
+        });
+      }
     }
 
     if (updates.status) {
       updateExpression.push("#status = :status");
       expressionAttributeValues[":status"] = updates.status;
       expressionAttributeNames["#status"] = "status";
+
+      if (currentAccount) {
+        changes.push({
+          field: "status",
+          oldValue: currentAccount.status,
+          newValue: updates.status,
+        });
+      }
     }
 
     if (updates.email) {
       updateExpression.push("email = :email");
       expressionAttributeValues[":email"] = updates.email;
+
+      if (currentAccount) {
+        changes.push({
+          field: "email",
+          oldValue: currentAccount.email,
+          newValue: updates.email,
+        });
+      }
     }
 
     updateExpression.push("updatedAt = :updatedAt");
@@ -264,6 +335,20 @@ export class UserAccountsService {
             : undefined,
       })
     );
+
+    // Log account modification for audit trail
+    if (changes.length > 0) {
+      await AuditLogger.logAccountModification(
+        userId,
+        "update",
+        actorId,
+        actorType,
+        changes,
+        {
+          updatedFields: changes.map((c) => c.field),
+        }
+      );
+    }
   }
 
   /**
@@ -271,7 +356,9 @@ export class UserAccountsService {
    */
   static async addPaymentMethod(
     userId: string,
-    paymentMethod: PaymentMethod
+    paymentMethod: PaymentMethod,
+    actorId: string = "system",
+    actorType: "user" | "system" | "admin" = "user"
   ): Promise<void> {
     const item: PaymentMethodItem = {
       PK: `USER#${userId}`,
@@ -290,6 +377,21 @@ export class UserAccountsService {
         TableName: TABLE_NAME,
         Item: item,
       })
+    );
+
+    // Log payment method addition for audit trail
+    await AuditLogger.logAccountModification(
+      userId,
+      "create",
+      actorId,
+      actorType,
+      undefined,
+      {
+        paymentMethodId: paymentMethod.paymentMethodId,
+        type: paymentMethod.type,
+        last4: paymentMethod.last4,
+        isDefault: paymentMethod.isDefault,
+      }
     );
   }
 
@@ -325,8 +427,16 @@ export class UserAccountsService {
    */
   static async deletePaymentMethod(
     userId: string,
-    paymentMethodId: string
+    paymentMethodId: string,
+    actorId: string = "system",
+    actorType: "user" | "system" | "admin" = "user"
   ): Promise<void> {
+    // Get payment method details before deletion for audit trail
+    const paymentMethods = await this.getPaymentMethods(userId);
+    const paymentMethod = paymentMethods.find(
+      (pm) => pm.paymentMethodId === paymentMethodId
+    );
+
     await docClient.send(
       new DeleteCommand({
         TableName: TABLE_NAME,
@@ -335,6 +445,25 @@ export class UserAccountsService {
           SK: `PAYMENT#${paymentMethodId}`,
         },
       })
+    );
+
+    // Log payment method deletion for audit trail
+    await AuditLogger.logAccountModification(
+      userId,
+      "delete",
+      actorId,
+      actorType,
+      undefined,
+      {
+        paymentMethodId,
+        deletedPaymentMethod: paymentMethod
+          ? {
+              type: paymentMethod.type,
+              last4: paymentMethod.last4,
+              isDefault: paymentMethod.isDefault,
+            }
+          : null,
+      }
     );
   }
 }
@@ -346,7 +475,10 @@ export class InvoicesService {
   /**
    * Create a new invoice
    */
-  static async createInvoice(invoice: Invoice): Promise<void> {
+  static async createInvoice(
+    invoice: Invoice,
+    actorId: string = "system"
+  ): Promise<void> {
     const item: InvoiceItem = {
       PK: `USER#${invoice.userId}`,
       SK: `INVOICE#${invoice.billingPeriod}`,
@@ -365,6 +497,23 @@ export class InvoicesService {
         TableName: TABLE_NAME,
         Item: item,
       })
+    );
+
+    // Log invoice creation for audit trail
+    await AuditLogger.logBillingEvent(
+      "invoice",
+      invoice.invoiceId,
+      "create",
+      actorId,
+      "system",
+      invoice.userId,
+      undefined,
+      {
+        billingPeriod: invoice.billingPeriod,
+        totalAmount: invoice.totalAmount,
+        status: invoice.status,
+        lineItemsCount: invoice.lineItems.length,
+      }
     );
   }
 
@@ -440,8 +589,13 @@ export class InvoicesService {
     userId: string,
     billingPeriod: string,
     status: "pending" | "paid" | "failed" | "overdue",
-    paidDate?: string
+    paidDate?: string,
+    actorId: string = "system",
+    actorType: "user" | "system" | "admin" = "system"
   ): Promise<void> {
+    // Get current invoice for audit trail
+    const currentInvoice = await this.getInvoice(userId, billingPeriod);
+
     const updateExpression = paidDate
       ? "SET #status = :status, paidDate = :paidDate"
       : "SET #status = :status";
@@ -468,6 +622,41 @@ export class InvoicesService {
         },
       })
     );
+
+    // Log invoice status update for audit trail
+    if (currentInvoice) {
+      const changes: AuditChange[] = [];
+
+      if (currentInvoice.status !== status) {
+        changes.push({
+          field: "status",
+          oldValue: currentInvoice.status,
+          newValue: status,
+        });
+      }
+
+      if (paidDate && currentInvoice.paidDate !== paidDate) {
+        changes.push({
+          field: "paidDate",
+          oldValue: currentInvoice.paidDate,
+          newValue: paidDate,
+        });
+      }
+
+      await AuditLogger.logPaymentEvent(
+        currentInvoice.invoiceId,
+        userId,
+        status === "paid" ? "charge" : "process",
+        actorId,
+        actorType,
+        {
+          billingPeriod,
+          totalAmount: currentInvoice.totalAmount,
+          statusChange: `${currentInvoice.status} -> ${status}`,
+          paidDate,
+        }
+      );
+    }
   }
 }
 
@@ -478,7 +667,85 @@ export class PricingConfigService {
   /**
    * Create or update a pricing tier
    */
-  static async setPricingTier(pricingTier: PricingTier): Promise<void> {
+  static async setPricingTier(
+    pricingTier: PricingTier,
+    actorId: string = "admin",
+    isUpdate: boolean = false
+  ): Promise<void> {
+    // Get current pricing tier for audit trail if updating
+    let currentTier: PricingTier | null = null;
+    const changes: AuditChange[] = [];
+
+    if (isUpdate) {
+      try {
+        const response = await docClient.send(
+          new GetCommand({
+            TableName: TABLE_NAME,
+            Key: {
+              PK: "PRICING",
+              SK: `TIER#${pricingTier.tierId}`,
+            },
+          })
+        );
+
+        if (response.Item) {
+          const item = response.Item as PricingConfigItem;
+          currentTier = {
+            tierId: pricingTier.tierId,
+            name: item.name,
+            minUsage: item.minUsage,
+            maxUsage: item.maxUsage,
+            pricePerEvent: item.pricePerEvent,
+            effectiveDate: item.effectiveDate,
+            isActive: item.isActive,
+          };
+
+          // Track changes
+          if (currentTier.name !== pricingTier.name) {
+            changes.push({
+              field: "name",
+              oldValue: currentTier.name,
+              newValue: pricingTier.name,
+            });
+          }
+          if (currentTier.minUsage !== pricingTier.minUsage) {
+            changes.push({
+              field: "minUsage",
+              oldValue: currentTier.minUsage,
+              newValue: pricingTier.minUsage,
+            });
+          }
+          if (currentTier.maxUsage !== pricingTier.maxUsage) {
+            changes.push({
+              field: "maxUsage",
+              oldValue: currentTier.maxUsage,
+              newValue: pricingTier.maxUsage,
+            });
+          }
+          if (currentTier.pricePerEvent !== pricingTier.pricePerEvent) {
+            changes.push({
+              field: "pricePerEvent",
+              oldValue: currentTier.pricePerEvent,
+              newValue: pricingTier.pricePerEvent,
+            });
+          }
+          if (currentTier.isActive !== pricingTier.isActive) {
+            changes.push({
+              field: "isActive",
+              oldValue: currentTier.isActive,
+              newValue: pricingTier.isActive,
+            });
+          }
+        }
+      } catch (error) {
+        // If we can't get the current tier, proceed without change tracking
+        console.warn(
+          "Could not retrieve current pricing tier for audit:",
+          error
+        );
+      }
+    }
+
     const item: PricingConfigItem = {
       PK: "PRICING",
       SK: `TIER#${pricingTier.tierId}`,
@@ -495,6 +762,22 @@ export class PricingConfigService {
         TableName: TABLE_NAME,
         Item: item,
       })
+    );
+
+    // Log pricing change for audit trail
+    await AuditLogger.logPricingChange(
+      pricingTier.tierId,
+      isUpdate ? "update" : "create",
+      actorId,
+      changes.length > 0 ? changes : undefined,
+      {
+        name: pricingTier.name,
+        minUsage: pricingTier.minUsage,
+        maxUsage: pricingTier.maxUsage,
+        pricePerEvent: pricingTier.pricePerEvent,
+        effectiveDate: pricingTier.effectiveDate,
+        isActive: pricingTier.isActive,
+      }
     );
   }
 

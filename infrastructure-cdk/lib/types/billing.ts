@@ -164,3 +164,70 @@ export interface PricingConfigItem {
   effectiveDate: string;
   isActive: boolean;
 }
+
+// Audit Log interfaces
+export interface AuditLogEntry {
+  auditId: string;
+  userId?: string;
+  eventType: AuditEventType;
+  entityType: AuditEntityType;
+  entityId: string;
+  action: AuditAction;
+  timestamp: string;
+  actorId: string;
+  actorType: "user" | "system" | "admin";
+  changes?: AuditChange[];
+  metadata?: Record<string, any>;
+  ipAddress?: string;
+  userAgent?: string;
+}
+
+export type AuditEventType =
+  | "billing_event"
+  | "account_modification"
+  | "pricing_change"
+  | "payment_event"
+  | "usage_event"
+  | "system_event";
+
+export type AuditEntityType =
+  | "user_account"
+  | "payment_method"
+  | "invoice"
+  | "pricing_tier"
+  | "usage_record"
+  | "billing_calculation";
+
+export type AuditAction =
+  | "create"
+  | "update"
+  | "delete"
+  | "process"
+  | "calculate"
+  | "charge"
+  | "refund"
+  | "suspend"
+  | "activate";
+
+export interface AuditChange {
+  field: string;
+  oldValue: any;
+  newValue: any;
+}
+
+export interface AuditLogItem {
+  PK: string; // AUDIT#{entityType}#{entityId} or AUDIT#GLOBAL
+  SK: string; // {timestamp}#{auditId}
+  userId?: string;
+  eventType: string;
+  entityType: string;
+  entityId: string;
+  action: string;
+  actorId: string;
+  actorType: string;
+  changes?: AuditChange[];
+  metadata?: Record<string, any>;
+  ipAddress?: string;
+  userAgent?: string;
+  hash: string; // Cryptographic hash for integrity verification
+}

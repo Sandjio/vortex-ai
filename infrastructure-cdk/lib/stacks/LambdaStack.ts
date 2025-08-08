@@ -31,6 +31,8 @@ export class LambdaStack extends Stack {
   public readonly accountManager: lambdaNodejs.NodejsFunction;
   public readonly paymentMethodManager: lambdaNodejs.NodejsFunction;
   public readonly pricingManager: lambdaNodejs.NodejsFunction;
+  public readonly billingApi: lambdaNodejs.NodejsFunction;
+  public readonly auditApi: lambdaNodejs.NodejsFunction;
 
   public readonly emailSender: lambdaNodejs.NodejsFunction;
 
@@ -373,6 +375,44 @@ export class LambdaStack extends Stack {
     );
     // Grant permissions to the pricingManager to read and write from the DynamoDB table
     props.table.grantReadWriteData(this.pricingManager);
+
+    this.billingApi = new lambdaNodejs.NodejsFunction(this, "BillingApi", {
+      entry: path.join(__dirname, "..", "..", "lambda", "billingApi.ts"),
+      runtime: lambda.Runtime.NODEJS_22_X,
+      environment: { TABLE_NAME: props.table.tableName },
+      bundling: {
+        externalModules: [
+          "aws-lambda",
+          "@aws-sdk/client-dynamodb",
+          "@aws-sdk/lib-dynamodb",
+        ],
+      },
+      projectRoot: path.join(__dirname, "../.."),
+      timeout: Duration.seconds(30),
+      memorySize: 256,
+      logRetention: logs.RetentionDays.ONE_WEEK,
+    });
+    // Grant permissions to the billingApi to read from the DynamoDB table
+    props.table.grantReadData(this.billingApi);
+
+    this.auditApi = new lambdaNodejs.NodejsFunction(this, "AuditApi", {
+      entry: path.join(__dirname, "..", "..", "lambda", "auditApi.ts"),
+      runtime: lambda.Runtime.NODEJS_22_X,
+      environment: { TABLE_NAME: props.table.tableName },
+      bundling: {
+        externalModules: [
+          "aws-lambda",
+          "@aws-sdk/client-dynamodb",
+          "@aws-sdk/lib-dynamodb",
+        ],
+      },
+      projectRoot: path.join(__dirname, "../.."),
+      timeout: Duration.seconds(30),
+      memorySize: 256,
+      logRetention: logs.RetentionDays.ONE_WEEK,
+    });
+    // Grant permissions to the auditApi to read from the DynamoDB table
+    props.table.grantReadData(this.auditApi);
 
     new events.Rule(this, `PRDataToDynamoRule-${stageName}`, {
       eventBus: props.eventBus,

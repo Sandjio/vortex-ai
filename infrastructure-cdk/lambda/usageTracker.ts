@@ -5,6 +5,7 @@ import {
   UserAccountsService,
 } from "../lib/utils/billingDatabase";
 import { UsageEvent } from "../lib/types/billing";
+import { AuditLogger } from "../lib/utils/auditLogger";
 import { v4 as uuidv4 } from "uuid";
 
 interface BedrockResponseDetail {
@@ -111,6 +112,17 @@ export const handler = async (
 
     // Record usage with idempotency protection
     await UsageRecordsService.recordUsage(usageEvent);
+
+    // Log usage event audit trail
+    await AuditLogger.logUsageEvent(eventId, userAccount.userId, "create", {
+      source: "usage_tracker",
+      eventType: usageEvent.eventType,
+      repository: repo,
+      billingPeriod,
+      githubUsername,
+      fileCount: event.detail.fileCount,
+      analysisSuccess: true,
+    });
 
     console.log(
       JSON.stringify({
