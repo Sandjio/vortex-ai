@@ -5,6 +5,7 @@ import {
   GetCommand,
   QueryCommand,
   UpdateCommand,
+  DeleteCommand,
 } from "@aws-sdk/lib-dynamodb";
 import {
   UsageEvent,
@@ -317,6 +318,24 @@ export class UserAccountsService {
       stripePaymentMethodId: item.stripePaymentMethodId,
       createdAt: item.createdAt,
     }));
+  }
+
+  /**
+   * Delete a payment method
+   */
+  static async deletePaymentMethod(
+    userId: string,
+    paymentMethodId: string
+  ): Promise<void> {
+    await docClient.send(
+      new DeleteCommand({
+        TableName: TABLE_NAME,
+        Key: {
+          PK: `USER#${userId}`,
+          SK: `PAYMENT#${paymentMethodId}`,
+        },
+      })
+    );
   }
 }
 

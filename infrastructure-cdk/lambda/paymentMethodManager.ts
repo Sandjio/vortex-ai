@@ -2,6 +2,13 @@ import { APIGatewayProxyHandlerV2 } from "aws-lambda";
 import { v4 as uuidv4 } from "uuid";
 import { UserAccountsService } from "../lib/utils/billingDatabase";
 import { PaymentMethod } from "../lib/types/billing";
+import {
+  getStripe,
+  createOrGetCustomer,
+  attachPaymentMethodToCustomer,
+  detachPaymentMethod,
+  listCustomerPaymentMethods,
+} from "../lib/utils/stripeService";
 
 // Validation functions
 const validatePaymentMethodData = (data: any): string[] => {
@@ -158,14 +165,42 @@ async function addPaymentMethod(
       };
     }
 
-    // Validate input data
-    const validationErrors = validatePaymentMethodData(body);
-    if (validationErrors.length > 0) {
+    // Create or get Stripe customer
+    const stripeCustomer = await createOrGetCustomer(
+      userAccount.email,
+      userId,
+      userAccount.githubUsername
+    );
+
+    let stripePaymentMethod;
+
+    // If stripePaymentMethodId is provided, attach existing payment method
+    if (body.stripePaymentMethodId) {
+      stripePaymentMethod = await attachPaymentMethodToCustomer(
+        body.stripePaymentMethodId,
+        stripeCustomer.id
+      );
+    } else {
       return {
         statusCode: 400,
         headers: corsHeaders,
-        body: JSON.stringify({ errors: validationErrors }),
+        body: JSON.stringify({ error: "Stripe payment method ID is required" }),
       };
+    }
+
+    // Extract payment method details from Stripe
+    const paymentMethodType =
+      stripePaymentMethod.type === "us_bank_account" ? "bank_account" : "card";
+    let last4 = "";
+    let expiryMonth: number | undefined;
+    let expiryYear: number | undefined;
+
+    if (stripePaymentMethod.card) {
+      last4 = stripePaymentMethod.card.last4;
+      expiryMonth = stripePaymentMethod.card.exp_month;
+      expiryYear = stripePaymentMethod.card.exp_year;
+    } else if (stripePaymentMethod.us_bank_account) {
+      last4 = stripePaymentMethod.us_bank_account.last4 || "";
     }
 
     // If this is set as default, we need to unset other default payment methods
@@ -184,12 +219,12 @@ async function addPaymentMethod(
     const paymentMethodId = uuidv4();
     const paymentMethod: PaymentMethod = {
       paymentMethodId,
-      type: body.type,
-      last4: body.last4,
-      expiryMonth: body.expiryMonth,
-      expiryYear: body.expiryYear,
+      type: paymentMethodType,
+      last4,
+      expiryMonth,
+      expiryYear,
       isDefault: body.isDefault || false,
-      stripePaymentMethodId: body.stripePaymentMethodId,
+      stripePaymentMethodId: stripePaymentMethod.id,
       createdAt: new Date().toISOString(),
     };
 
@@ -391,7 +426,7 @@ async function removePaymentMethod(
       };
     }
 
-    // Check if this is the only payment method and it's default
+    // Check if this is the only payment method
     if (existingPaymentMethods.length === 1) {
       return {
         statusCode: 400,
@@ -417,18 +452,24 @@ async function removePaymentMethod(
       }
     }
 
-    // Note: In a real implementation, we would delete from DynamoDB
-    // For now, we'll return success as the database service doesn't have a delete method
-    // This would need to be implemented in the billingDatabase.ts file
+    // Detach payment method from Stripe
+    try {
+      await detachPaymentMethod(paymentMethodToRemove.stripePaymentMethodId);
+    } catch (stripeError) {
+      console.error("Error detaching payment method from Stripe:", stripeError);
+      // Continue with local deletion even if Stripe fails
+    }
 
-    console.log("Payment method removal requested:", paymentMethodId);
+    // Delete from database
+    await UserAccountsService.deletePaymentMethod(userId, paymentMethodId);
+
+    console.log("Payment method removed successfully:", paymentMethodId);
 
     return {
       statusCode: 200,
       headers: corsHeaders,
       body: JSON.stringify({
-        message: "Payment method removal requested",
-        note: "Delete functionality needs to be implemented in database service",
+        message: "Payment method removed successfully",
       }),
     };
   } catch (error) {
