@@ -126,11 +126,8 @@ export const handler = async (
     );
 
     // Check usage limits and send alerts if necessary
-    await checkUsageLimits(
-      userAccount.userId,
-      billingPeriod,
-      userAccount.usageLimits
-    );
+    const { triggerUsageLimitCheck } = await import("./usageLimitsChecker");
+    await triggerUsageLimitCheck(userAccount.userId, billingPeriod);
 
     return { statusCode: 200, message: "Usage tracked successfully" };
   } catch (error) {
@@ -150,81 +147,3 @@ export const handler = async (
     return { statusCode: 500, message: "Usage tracking failed" };
   }
 };
-
-/**
- * Check if user has exceeded usage limits and handle accordingly
- */
-async function checkUsageLimits(
-  userId: string,
-  billingPeriod: string,
-  usageLimits: any
-): Promise<void> {
-  if (!usageLimits.monthlyLimit) {
-    return; // No limits set
-  }
-
-  try {
-    const currentUsage = await UsageRecordsService.getUserUsageCount(
-      userId,
-      billingPeriod
-    );
-    const limit = usageLimits.monthlyLimit;
-    const usagePercentage = (currentUsage / limit) * 100;
-
-    console.log(
-      JSON.stringify({
-        level: "info",
-        message: "Checking usage limits",
-        userId,
-        currentUsage,
-        limit,
-        usagePercentage: Math.round(usagePercentage),
-      })
-    );
-
-    // Check if user has exceeded their limit
-    if (currentUsage >= limit && usageLimits.suspendOnExceed) {
-      console.log(
-        JSON.stringify({
-          level: "warn",
-          message: "User exceeded usage limit, suspending account",
-          userId,
-          currentUsage,
-          limit,
-        })
-      );
-
-      // Suspend user account
-      await UserAccountsService.updateUserAccount(userId, {
-        status: "suspended",
-      });
-
-      // TODO: Send notification email about suspension
-      // This would be implemented in a separate notification service
-    } else if (usageLimits.alertAt80Percent && usagePercentage >= 80) {
-      console.log(
-        JSON.stringify({
-          level: "info",
-          message: "User approaching usage limit",
-          userId,
-          currentUsage,
-          limit,
-          usagePercentage: Math.round(usagePercentage),
-        })
-      );
-
-      // TODO: Send alert email about approaching limit
-      // This would be implemented in a separate notification service
-    }
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        level: "error",
-        message: "Error checking usage limits",
-        error: error instanceof Error ? error.message : String(error),
-        userId,
-        billingPeriod,
-      })
-    );
-  }
-}
